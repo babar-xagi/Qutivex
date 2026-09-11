@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Qutivex"
+           Manufacturer="Qutivex"
+           Version="$(var.Version)"
+           UpgradeCode="4C7A5E19-5867-4638-B549-F3C2C907A3E2"
+           Scope="perMachine">
+    <SummaryInformation Description="Qutivex - Kotlin Package and Project Manager"
+                        Manufacturer="Qutivex" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Qutivex">
+        <Directory Id="BinFolder" Name="bin" />
+        <Directory Id="LibFolder" Name="lib" />
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="Qutivex CLI" Level="1">
+      <Component Directory="INSTALLFOLDER">
+        <File Id="VersionFile" Source="$(var.SourceDir)\VERSION" KeyPath="yes" />
+      </Component>
+
+      <Component Directory="BinFolder">
+        <File Id="qutivex.bat" Source="$(var.SourceDir)\bin\qutivex.bat" KeyPath="yes" />
+        <Environment Id="PATH"
+                     Name="PATH"
+                     Value="[INSTALLFOLDER]bin"
+                     Permanent="no"
+                     Part="last"
+                     Action="set"
+                     System="yes" />
+      </Component>
+
+      <Files Directory="LibFolder" Include="$(var.SourceDir)\lib\*" />
+    </Feature>
+  </Package>
+</Wix>

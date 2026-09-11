@@ -5,8 +5,55 @@ Qutivex itself is written in Kotlin and initially targets Kotlin/JVM application
 
 **Status: Runnable Gradle-backed preview (`0.1.0-dev`).** Help, version output,
 project initialization (`init`), application execution (`run`), testing (`test`),
-and distribution packaging (`build`) work today. Dependency modification (`add`)
-and lockfile synchronization (`install`) are planned for Phase 2.
+distribution packaging (`build`), and environment inspection (`doctor`) work today.
+Dependency modification (`add`) and lockfile synchronization (`install`) are planned for Phase 2.
+
+## Windows Installation (MSI)
+
+### Requirements
+
+- Windows x64
+- JDK 21 (e.g., Eclipse Adoptium Temurin 21)
+- Internet connection for initial dependency/build downloads
+
+> [!NOTE]
+> - You do **not** need to install Gradle.
+> - You do **not** need to install Maven.
+> - You do **not** need to install Kotlin separately.
+> Qutivex manages its Gradle backend and Kotlin toolchain internally.
+
+### Install
+
+1. Download **`qutivex-x64.msi`** from the [GitHub Releases](https://github.com/babar-xagi/Qutivex/releases) page.
+2. Run the installer (installs to `C:\Program Files\Qutivex\` and configures your `PATH`).
+3. Open a new PowerShell or Command Prompt:
+
+```powershell
+qutivex --version
+qutivex doctor
+```
+
+4. Create and run a project:
+
+```powershell
+qutivex init hello
+cd hello
+qutivex run
+qutivex test
+qutivex build
+```
+
+### Build Windows MSI from Source
+
+To produce `qutivex-x64.msi` locally using the repository's Gradle wrapper and WiX:
+
+```powershell
+.\gradlew.bat packageWindowsMsi
+```
+
+Output artifacts:
+- `dist/qutivex-x64.msi`
+- `dist/qutivex-x64.msi.sha256`
 
 ## Run the CLI from source
 

@@ -1,5 +1,6 @@
 package dev.qutivex.cli
 
+import dev.qutivex.engine.diagnostics.EnvironmentDiagnostics
 import dev.qutivex.engine.manifest.ManifestParseException
 import dev.qutivex.engine.project.ProjectExecutor
 import dev.qutivex.engine.project.ProjectInitializer
@@ -13,6 +14,7 @@ import java.util.Properties
 class QutivexCli(
     private val projectInitializer: ProjectInitializer = ProjectInitializer(),
     private val projectExecutor: ProjectExecutor = ProjectExecutor(),
+    private val diagnostics: EnvironmentDiagnostics = EnvironmentDiagnostics(),
 ) {
     fun execute(
         args: List<String>,
@@ -43,8 +45,12 @@ class QutivexCli(
                     stdout.println(BUILD_HELP)
                     0
                 }
+                Command.DoctorHelp -> {
+                    stdout.println(DOCTOR_HELP)
+                    0
+                }
                 Command.Version -> {
-                    stdout.println("qutivex ${readVersion()}")
+                    stdout.println("Qutivex ${readVersion()}")
                     0
                 }
                 is Command.Init -> {
@@ -75,6 +81,9 @@ class QutivexCli(
                         stdout = stdout,
                         stderr = stderr,
                     )
+                }
+                Command.Doctor -> {
+                    diagnostics.printReport(diagnostics.inspect(readVersion()), stdout, stderr)
                 }
             }
         } catch (failure: UsageException) {
@@ -111,6 +120,7 @@ class QutivexCli(
             "run" -> parseRun(args.drop(1))
             "test" -> parseTest(args.drop(1))
             "build" -> parseBuild(args.drop(1))
+            "doctor" -> parseDoctor(args.drop(1))
             "add", "install" ->
                 throw UsageException("The '$first' command is planned and is not implemented yet.")
             else -> throw UsageException("Unknown ${if (first.startsWith('-')) "option" else "command"}: $first")
@@ -188,6 +198,18 @@ class QutivexCli(
         return Command.Build
     }
 
+    private fun parseDoctor(args: List<String>): Command {
+        if (args.size == 1 && args.first() in setOf("--help", "-h")) return Command.DoctorHelp
+        if (args.isNotEmpty()) {
+            val first = args.first()
+            if (first.startsWith('-')) {
+                throw UsageException("Unknown option for 'doctor': $first")
+            }
+            throw UsageException("'doctor' does not accept additional arguments.")
+        }
+        return Command.Doctor
+    }
+
     private fun readVersion(): String {
         val metadata = Properties()
         val resource = QutivexCli::class.java.getResourceAsStream("/qutivex-version.properties")
@@ -203,11 +225,13 @@ class QutivexCli(
         data object RunHelp : Command
         data object TestHelp : Command
         data object BuildHelp : Command
+        data object DoctorHelp : Command
         data object Version : Command
         data class Init(val directory: String) : Command
         data class Run(val forwardArgs: List<String>) : Command
         data object Test : Command
         data object Build : Command
+        data object Doctor : Command
     }
 
     private class UsageException(message: String) : IllegalArgumentException(message)
@@ -223,6 +247,7 @@ class QutivexCli(
               run [-- args]     Run the project application entry point
               test              Run project tests
               build             Build project distributions
+              doctor            Inspect local environment and requirements
               help              Show this help
 
             Options:
@@ -279,6 +304,15 @@ class QutivexCli(
             Usage: qutivex build
 
             Compile and produce application distributions under build/.
+
+            Options:
+              -h, --help    Show this help
+        """.trimIndent()
+
+        val DOCTOR_HELP = """
+            Usage: qutivex doctor
+
+            Inspect local environment, Java installation, and build dependencies.
 
             Options:
               -h, --help    Show this help

@@ -14,6 +14,8 @@
 | `qutivex test --help` | Show test help |
 | `qutivex build` | Compile and produce application distributions under `build/` |
 | `qutivex build --help` | Show build help |
+| `qutivex doctor` | Inspect local environment, Java installation, and build dependencies |
+| `qutivex doctor --help` | Show doctor help |
 
 Quote directory paths containing spaces. A `--` after `init` ends option parsing;
 it does not bypass project-name validation. Names are normalized to lowercase, with

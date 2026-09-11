@@ -31,10 +31,34 @@ class QutivexCliTest {
             assertTrue(result.stdout.contains("run [-- args]"))
             assertTrue(result.stdout.contains("test"))
             assertTrue(result.stdout.contains("build"))
+            assertTrue(result.stdout.contains("doctor"))
             assertTrue(result.stdout.contains("Planned commands (not implemented yet): add, install."))
             assertEquals("", result.stderr)
             assertFalse(Files.exists(missingDirectory))
         }
+    }
+
+    @Test
+    fun `doctor help has no filesystem effects`() {
+        for (flag in listOf("--help", "-h")) {
+            val result = execute(listOf("doctor", flag))
+
+            assertEquals(0, result.exitCode)
+            assertTrue(result.stdout.contains("Usage: qutivex doctor"))
+            assertEquals("", result.stderr)
+            Files.list(temporaryDirectory).use { assertEquals(0L, it.count()) }
+        }
+    }
+
+    @Test
+    fun `doctor runs without requiring a project directory`() {
+        val missingDirectory = temporaryDirectory.resolve("missing")
+        val result = execute(listOf("doctor"), missingDirectory)
+
+        assertTrue(result.stdout.contains("Qutivex Environment"))
+        assertTrue(result.stdout.contains("Qutivex"))
+        assertTrue(result.stdout.contains("Platform"))
+        assertFalse(Files.exists(missingDirectory))
     }
 
     @Test
@@ -97,7 +121,7 @@ class QutivexCliTest {
             val result = execute(listOf(flag), missingDirectory)
 
             assertEquals(0, result.exitCode)
-            assertEquals("qutivex $expectedVersion${System.lineSeparator()}", result.stdout)
+            assertEquals("Qutivex $expectedVersion${System.lineSeparator()}", result.stdout)
             assertEquals("", result.stderr)
             assertFalse(Files.exists(missingDirectory))
         }
@@ -191,6 +215,8 @@ class QutivexCliTest {
             listOf("test", "--unknown"),
             listOf("build", "extra"),
             listOf("build", "--unknown"),
+            listOf("doctor", "extra"),
+            listOf("doctor", "--unknown"),
         )
         for (args in invalidArguments) {
             val result = execute(args)
