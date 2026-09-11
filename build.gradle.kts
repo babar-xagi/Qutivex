@@ -25,6 +25,14 @@ tasks.register<Exec>("packageWindowsMsi") {
     dependsOn(":cli:installDist")
 
     workingDir = rootDir
+    standardOutput = System.out
+    errorOutput = System.err
+
+    val packageVersion = project.findProperty("qutivexVersion") as? String
+        ?: project.findProperty("version") as? String
+        ?: System.getenv("QUTIVEX_VERSION")
+        ?: project.version.toString()
+
     commandLine(
         "powershell",
         "-NoProfile",
@@ -33,7 +41,7 @@ tasks.register<Exec>("packageWindowsMsi") {
         "-File",
         file("scripts/package-msi.ps1").absolutePath,
         "-Version",
-        project.version.toString(),
+        packageVersion,
     )
 }
 
