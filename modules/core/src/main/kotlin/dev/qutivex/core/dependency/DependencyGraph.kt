@@ -7,6 +7,8 @@ data class DependencyGraph(
     val rootProjectName: String,
     val packages: List<ResolvedDependency>,
 ) {
+    constructor(packages: List<ResolvedDependency>) : this("project", packages)
+
     val directDependencies: List<ResolvedDependency> get() = packages.filter { it.direct }
     val transitiveDependencies: List<ResolvedDependency> get() = packages.filter { !it.direct }
 

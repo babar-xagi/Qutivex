@@ -11,6 +11,8 @@ data class LockfileSpec(
     val manifestHash: String,
     val kotlinVersion: String = "2.4.10",
     val jvmTarget: Int = 21,
+    val backendType: String = "gradle",
+    val backendVersion: String = "9.5.0",
     val packages: List<ResolvedDependency> = emptyList(),
 ) {
     init {
@@ -33,7 +35,10 @@ data class LockfileSpec(
         append("manifest-hash = \"$manifestHash\"\n\n")
         append("[toolchain]\n")
         append("kotlin = \"$kotlinVersion\"\n")
-        append("jvm = $jvmTarget\n")
+        append("jvm = $jvmTarget\n\n")
+        append("[backend]\n")
+        append("type = \"$backendType\"\n")
+        append("gradle = \"$backendVersion\"\n")
 
         val sortedPackages = packages.sortedWith(
             compareBy<ResolvedDependency> { it.scope }

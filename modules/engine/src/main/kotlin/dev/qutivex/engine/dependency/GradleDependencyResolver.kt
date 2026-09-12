@@ -48,6 +48,14 @@ class GradleDependencyResolver(
 
         if (exitCode != 0) {
             val errText = errCapture.toString().trim().ifEmpty { outCapture.toString().trim() }
+            if (offline) {
+                val missing = DependencyManager.findMissingOfflineCoordinate(errText)
+                if (missing != null) {
+                    val (g, a, v) = missing
+                    val cache = LocalArtifactCache()
+                    throw MissingOfflineArtifactException(g, a, v, cache.getExpectedLocation(g, a, v))
+                }
+            }
             val diagnostic = errText.lineSequence()
                 .filter { it.isNotBlank() && !it.startsWith("BUILD FAILED") && !it.startsWith("FAILURE:") }
                 .take(6)

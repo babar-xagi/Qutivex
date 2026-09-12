@@ -44,6 +44,10 @@ class LockfileManager {
         val kotlinVersion = toolchainTable?.getString(listOf("kotlin")) ?: "2.4.10"
         val jvmTarget = toolchainTable?.getLong(listOf("jvm"))?.toInt() ?: 21
 
+        val backendTable = result.getTable("backend")
+        val backendType = backendTable?.getString(listOf("type")) ?: "gradle"
+        val backendVersion = backendTable?.getString(listOf("gradle")) ?: "9.5.0"
+
         val packages = mutableListOf<ResolvedDependency>()
 
         if (result.contains(listOf("package"))) {
@@ -119,6 +123,8 @@ class LockfileManager {
             manifestHash = manifestHash,
             kotlinVersion = kotlinVersion,
             jvmTarget = jvmTarget,
+            backendType = backendType,
+            backendVersion = backendVersion,
             packages = packages,
         )
     }
@@ -155,6 +161,8 @@ class LockfileManager {
             manifestHash = manifest.computeHash(),
             kotlinVersion = manifest.toolchain.kotlin,
             jvmTarget = manifest.toolchain.jvm,
+            backendType = "gradle",
+            backendVersion = "9.5.0",
             packages = resolvedPackages,
         )
 
@@ -183,6 +191,27 @@ class LockfileManager {
         }
         val spec = read(projectDir)
             ?: throw LockfileException("Failed to read 'qutivex.lock'.")
+        // 1. Verify toolchain versions match
+        if (spec.kotlinVersion != manifest.toolchain.kotlin || spec.jvmTarget != manifest.toolchain.jvm) {
+            throw LockfileException(
+                "Toolchain mismatch in frozen mode.\n" +
+                "Expected: Kotlin ${spec.kotlinVersion}, JVM ${spec.jvmTarget}\n" +
+                "Current:  Kotlin ${manifest.toolchain.kotlin}, JVM ${manifest.toolchain.jvm}\n" +
+                "Run 'qutivex install' without --frozen to reconcile dependencies."
+            )
+        }
+
+        // 2. Verify backend build-tool match
+        if (spec.backendType != "gradle" || spec.backendVersion != "9.5.0") {
+            throw LockfileException(
+                "Backend build-tool mismatch in frozen mode.\n" +
+                "Expected backend: ${spec.backendType} ${spec.backendVersion}\n" +
+                "Current backend:  gradle 9.5.0\n" +
+                "Run 'qutivex install' without --frozen to reconcile build-tool state."
+            )
+        }
+
+        // 3. Verify manifest hash
         val currentHash = manifest.computeHash()
         if (spec.manifestHash != currentHash) {
             throw LockfileException(

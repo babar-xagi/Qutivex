@@ -200,7 +200,9 @@ class QutivexCli(
                 }
                 is Command.Install -> {
                     val start = System.currentTimeMillis()
-                    stdout.println("📥 Resolving and installing dependencies...")
+                    if (!command.offline || !command.frozen) {
+                        stdout.println("📥 Resolving and installing dependencies...")
+                    }
                     val code = dependencyManager.install(
                         projectDir = workingDirectory,
                         frozen = command.frozen,
@@ -211,7 +213,11 @@ class QutivexCli(
                     )
                     val elapsed = System.currentTimeMillis() - start
                     if (code == 0) {
-                        stdout.println("✅ Dependencies installed in ${formatDuration(elapsed)}")
+                        if (command.offline && command.frozen) {
+                            stdout.println("✅ Dependencies verified from local cache in ${formatDuration(elapsed)}")
+                        } else {
+                            stdout.println("✅ Dependencies installed in ${formatDuration(elapsed)}")
+                        }
                     } else {
                         stdout.println("❌ Installation failed in ${formatDuration(elapsed)}")
                     }

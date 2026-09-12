@@ -8,16 +8,18 @@ import dev.qutivex.engine.backend.gradle.GradleProcessRunner
 import dev.qutivex.engine.lockfile.LockfileManager
 import dev.qutivex.engine.manifest.ManifestParser
 import dev.qutivex.engine.manifest.ManifestWriter
+import dev.qutivex.engine.project.ProjectLockManager
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
 
-class DependencyException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+open class DependencyException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
 
 /**
  * Handles adding, removing, listing, and installing project dependencies.
- * Uses DependencyResolver for dependency graph discovery.
+ * Uses DependencyResolver for dependency graph discovery, ArtifactCache for integrity verification,
+ * and ProjectLockManager for mutual exclusion during project mutations.
  */
 class DependencyManager(
     private val manifestParser: ManifestParser = ManifestParser(),
@@ -26,6 +28,7 @@ class DependencyManager(
     private val backendGenerator: GradleBackendGenerator = GradleBackendGenerator(),
     private val processRunner: BackendProcessRunner = GradleProcessRunner(),
     private val dependencyResolver: DependencyResolver = GradleDependencyResolver(backendGenerator, processRunner),
+    private val artifactCache: ArtifactCache = LocalArtifactCache(),
 ) {
     fun add(
         projectDir: Path,
@@ -34,7 +37,7 @@ class DependencyManager(
         verbose: Boolean = false,
         stdout: PrintWriter,
         stderr: PrintWriter,
-    ): ManifestSpec {
+    ): ManifestSpec = ProjectLockManager.acquire(projectDir, "add").use {
         val manifestFile = projectDir.resolve("qutivex.toml")
         if (!Files.exists(manifestFile)) {
             throw DependencyException("No 'qutivex.toml' manifest found in '$projectDir'. Run 'qutivex init' first.")
@@ -84,7 +87,7 @@ class DependencyManager(
         coordinateKey: String,
         isTest: Boolean = false,
         verbose: Boolean = false,
-    ): ManifestSpec {
+    ): ManifestSpec = ProjectLockManager.acquire(projectDir, "remove").use {
         val manifestFile = projectDir.resolve("qutivex.toml")
         if (!Files.exists(manifestFile)) {
             throw DependencyException("No 'qutivex.toml' manifest found in '$projectDir'. Run 'qutivex init' first.")
@@ -141,7 +144,7 @@ class DependencyManager(
         verbose: Boolean = false,
         stdout: PrintWriter,
         stderr: PrintWriter,
-    ): Int {
+    ): Int = ProjectLockManager.acquire(projectDir, "install").use {
         val manifestFile = projectDir.resolve("qutivex.toml")
         if (!Files.exists(manifestFile)) {
             throw DependencyException("No 'qutivex.toml' manifest found in '$projectDir'. Run 'qutivex init' first.")
@@ -150,14 +153,41 @@ class DependencyManager(
 
         if (frozen) {
             lockfileManager.verifyFrozen(projectDir, manifest)
-        }
+            val lockfile = lockfileManager.read(projectDir)
+                ?: throw DependencyException("Failed to read 'qutivex.lock'.")
 
-        val graph = if (!frozen) {
+            // Verify integrity and presence of all locked packages
+            for (pkg in lockfile.packages) {
+                val file = artifactCache.findArtifact(pkg.group, pkg.artifact, pkg.version)
+                    ?: artifactCache.findPom(pkg.group, pkg.artifact, pkg.version)
+
+                if (file == null) {
+                    if (offline) {
+                        throw MissingOfflineArtifactException(
+                            group = pkg.group,
+                            artifact = pkg.artifact,
+                            version = pkg.version,
+                            expectedLocation = artifactCache.getExpectedLocation(pkg.group, pkg.artifact, pkg.version),
+                        )
+                    }
+                } else {
+                    // Cached file exists - verify integrity against trusted lockfile checksum
+                    artifactCache.verifyIntegrity(pkg.group, pkg.artifact, pkg.version, pkg.checksum)
+                }
+            }
+        } else {
+            // Online or unfrozen install
+            val existingLock = lockfileManager.read(projectDir)
+            if (existingLock != null) {
+                for (pkg in existingLock.packages) {
+                    if (artifactCache.contains(pkg.group, pkg.artifact, pkg.version)) {
+                        artifactCache.verifyIntegrity(pkg.group, pkg.artifact, pkg.version, pkg.checksum)
+                    }
+                }
+            }
+
             val resolved = dependencyResolver.resolve(projectDir, manifest, offline = offline, verbose = verbose)
             lockfileManager.write(projectDir, manifest, resolved)
-            resolved
-        } else {
-            null
         }
 
         backendGenerator.generate(projectDir, manifest)
@@ -167,7 +197,8 @@ class DependencyManager(
             extraArgs.add("--offline")
         }
 
-        val outWriter = if (verbose) stdout else PrintWriter(StringWriter())
+        val outCapture = StringWriter()
+        val outWriter = if (verbose) stdout else PrintWriter(outCapture)
         val errCapture = StringWriter()
         val errWriter = if (verbose) stderr else PrintWriter(errCapture)
 
@@ -179,13 +210,48 @@ class DependencyManager(
             stderr = errWriter,
         )
 
-        if (exitCode != 0 && !verbose) {
+        if (exitCode != 0) {
             val errText = errCapture.toString().trim()
-            if (errText.isNotBlank()) {
+            val combinedText = "$errText\n${outCapture.toString().trim()}"
+            if (offline) {
+                val missingMatch = findMissingOfflineCoordinate(combinedText)
+                if (missingMatch != null) {
+                    val (g, a, v) = missingMatch
+                    throw MissingOfflineArtifactException(
+                        group = g,
+                        artifact = a,
+                        version = v,
+                        expectedLocation = artifactCache.getExpectedLocation(g, a, v),
+                    )
+                }
+            }
+            if (!verbose && errText.isNotBlank()) {
                 stderr.println(errText)
             }
         }
 
         return exitCode
+    }
+
+    companion object {
+        private val OFFLINE_MISSING_PATTERNS = listOf(
+            Regex("""Could not find ([^:\s]+):([^:\s]+):([^:\s]+)"""),
+            Regex("""Could not resolve ([^:\s]+):([^:\s]+):([^:\s]+)"""),
+            Regex("""Cannot resolve external dependency ([^:\s]+):([^:\s]+):([^:\s]+)"""),
+            Regex("""No cached version of ([^:\s]+):([^:\s]+):([^:\s]+) available"""),
+        )
+
+        fun findMissingOfflineCoordinate(text: String): Triple<String, String, String>? {
+            for (pattern in OFFLINE_MISSING_PATTERNS) {
+                val match = pattern.find(text)
+                if (match != null) {
+                    val g = match.groupValues[1].trimEnd('.')
+                    val a = match.groupValues[2].trimEnd('.')
+                    val v = match.groupValues[3].trimEnd('.')
+                    return Triple(g, a, v)
+                }
+            }
+            return null
+        }
     }
 }

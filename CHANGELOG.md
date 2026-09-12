@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.2] - 2026-09-12
+
+### Added
+- **Phase 2 Hardening & Integrity Enforcement**:
+  - **Offline + Frozen Fast Verification**:
+    - `qutivex install --offline --frozen` performs zero-network dependency verification directly from local artifact cache.
+    - Reports: `✅ Dependencies verified from local cache in <duration>`.
+  - **Cryptographic Artifact Integrity Verification (SHA-256)**:
+    - Every cached artifact is verified against the lockfile's SHA-256 checksum on install.
+    - Deliberate corruptions and cache tampering are rejected with expected vs. actual digests.
+  - **Actionable Offline Missing Artifact Diagnostics**:
+    - Surfaces exact coordinate and expected file location on disk rather than internal Gradle dumps.
+  - **Concurrent Project Mutation Locking (`.qutivex/project.lock`)**:
+    - Process-exclusive locking across mutating operations (`add`, `remove`, `install`).
+    - Reports active process PID, operation name, and automatically recovers stale locks from dead processes.
+  - **Compiler & Build-Tool State Locking**:
+    - Locked `[toolchain]` (Kotlin, JVM) and `[backend]` (Gradle engine) validated strictly in `--frozen` mode.
+  - **Security Architecture Documentation**:
+    - Added `docs/security.md` covering Trust-On-First-Use (TOFU), SHA-256 integrity, repository trust, and concurrency safety.
+
+---
+
 ## [0.2.1] - 2026-09-12
 
 ### Fixed
