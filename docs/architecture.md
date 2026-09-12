@@ -23,27 +23,58 @@ Qutivex follows a strict three-module architectural design:
 
 ---
 
-## Dependency Management & Lockfile Architecture (Phase 2)
+## Native Dependency Engine (Phase 3.5)
 
-### 1. Domain Abstractions & Clean Separation
-Dependency operations are decoupled into clean domain models and pluggable resolution providers:
-- `DependencyResolver`: Contract for resolving project dependencies without coupling callers to Gradle APIs.
-- `RepositoryClient`: Abstraction for querying remote package registries (e.g. Maven Central).
-- `ArtifactCache`: Abstraction for local caching of resolved artifacts and metadata.
-- `ResolvedDependency`: Pure model for a resolved component (`group`, `artifact`, `version`, `scope`, `direct`, `dependencies`, `checksum`, `repository`).
-- `DependencyGraph`: Full directed dependency graph representing all direct and transitive packages.
+In Phase 3.5, Qutivex completely removed Gradle from dependency management. All dependency operations (`add`, `remove`, `update`, `list`, `tree`, `install`) are executed by a native Kotlin engine:
 
-### 2. Dependency Resolution & Atomic Staging
-When `qutivex add` is executed:
-1. The requested coordinate (`group:artifact:version` or `group:artifact@version`) is parsed and validated via `DependencyCoordinate`.
-2. A new in-memory `ManifestSpec` is created.
-3. The candidate manifest is staged to `qutivex.toml`.
-4. The disposable backend under `.qutivex/gradle/` is generated.
-5. The `DependencyResolver` (`GradleDependencyResolver`) executes `qutivexResolve`—a lightweight task that evaluates configuration resolution graphs directly without executing Kotlin source compilation daemon.
-6. **Automatic Rollback**: If resolution fails (e.g., nonexistent coordinate or network error), `DependencyManager` immediately restores the previous valid `qutivex.toml` and regenerates the backend, leaving zero corrupted files.
-7. **Lockfile Generation**: Upon successful resolution, `LockfileManager` writes `qutivex.lock` with deterministic package ordering and SHA-256 manifest integrity hash.
+```text
+qutivex add/install/update
+        ↓
+NativeDependencyResolver
+        ↓
+MavenRepositoryClient (HTTP/TLS)
+        ↓
+PomParser & ComparableVersion
+        ↓
+LocalArtifactCache (~/.qutivex/cache/)
+        ↓
+qutivex.lock (deterministic TOML)
+```
 
-### 3. Comprehensive Lockfile Specification (`qutivex.lock`)
+### 1. Domain Models & Version Comparison
+- `MavenCoordinate`: Parsed coordinate model with relative repository path generation for POM, JAR, and metadata files.
+- `ComparableVersion`: Maven-compliant version ordering supporting numeric components, qualifier tokens (`alpha`, `beta`, `rc`, `snapshot`, `final`/`ga`/`release`, `sp`), zero-padding equivalence (`1.0 == 1.0.0`), and qualifier ranking (`1.0-alpha < 1.0 < 1.0.1`).
+
+### 2. POM & BOM Parser (`PomParser`)
+Native DOM XML parser that handles:
+- **Parent POM Inheritance**: Resolves and merges parent POMs transitively up the inheritance hierarchy.
+- **Properties Interpolation**: Recursively interpolates `${property.name}`, `${project.version}`, `${project.groupId}`, and parent properties.
+- **`dependencyManagement` & BOMs**: Imports BOM POMs (`<scope>import</scope>`, `<type>pom</type>`) and applies managed dependency versions.
+- **Exclusions**: Matches and filters out `PomExclusion` rules transitively.
+- **Optional Dependencies**: Suppresses `<optional>true</optional>` dependencies from transitive propagation.
+- **Scopes**: Maps Maven scopes (`compile`, `runtime`, `test`, `provided`) correctly into Qutivex runtime and test dependencies.
+
+### 3. Repository Client & Atomic Artifact Cache
+- `RepositoryClient`: Streaming HTTP client with exponential backoff retries, SHA-256 checksum calculation, and atomic move (`.tmp.<uuid>` to final destination).
+- `ArtifactCache`: Native cache located at `~/.qutivex/cache/` containing structured subdirectories:
+  - `artifacts/`: Cached dependency JARs organized by Maven group/artifact/version.
+  - `poms/`: Cached POM XML files.
+  - `metadata/`: Version metadata.
+  - `temp/`: Safe staging area.
+- **Concurrent Download Locking**: `withLock(coordinateKey)` ensures simultaneous dependency downloads deduplicate work without race conditions.
+- **Integrity Verification**: Verifies SHA-256 against `qutivex.lock` on install; rejects tampered artifacts via `ArtifactIntegrityException`.
+
+### 4. Graph Resolver & Highest-Version Conflict Selection
+- `NativeDependencyResolver`: Resolves the complete directed graph starting from direct manifest dependencies.
+- **Conflict Resolution**: Highest version wins across all dependency depths, preventing version drift and runtime classpath incompatibilities.
+- **Cycle Detection**: Tracks the resolution path to detect and safely terminate circular dependency graphs.
+
+### 5. Self-Updater Architecture (`SelfUpdater`)
+- Queries GitHub Releases API for latest Qutivex tags and assets.
+- On Windows: downloads official `qutivex-x64.msi`, validates SHA-256 against release checksum digest, and executes `msiexec.exe /i <msi> /qb` for an in-place upgrade. Never directly overwrites `Program Files`.
+- On Linux/macOS: informs users of release tarballs and release notes.
+
+### 6. Comprehensive Lockfile Specification (`qutivex.lock`)
 ```toml
 # Qutivex lockfile (version = 1) - generated automatically, do not edit manually
 version = 1
@@ -77,6 +108,7 @@ repository = "https://repo.maven.apache.org/maven2/"
 - **Transitive Coverage**: Every direct and transitive package is locked with its exact version, scope, direct flag, upstream dependencies, and repository.
 - **Manifest Integrity Hash**: Calculated via SHA-256 over normalized manifest TOML content.
 - **Frozen Validation (`--frozen`)**: Ensures `qutivex.lock` exists and that its `manifest-hash` precisely matches `qutivex.toml`. Any drift triggers an immediate exit with remediation guidance.
+- **Offline + Frozen Guarantee**: Zero network, zero Gradle, zero manifest mutation, and zero lockfile mutation.
 
 ---
 

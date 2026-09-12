@@ -43,7 +43,7 @@ jobs:
       - name: Run checks and integration tests
         run: .\gradlew.bat check :cli:installDist --console=plain
 
-      - name: Build Windows MSI Package
+      - name: Build Windows MSI Package & Distribution Archives
         shell: pwsh
         run: |
           $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
@@ -56,6 +56,7 @@ jobs:
           Write-Host "Packaging Windows MSI for version $tagVersion..."
           $env:QUTIVEX_VERSION = $tagVersion
           .\scripts\package-msi.ps1 -Version $tagVersion
+          .\gradlew.bat packageDistributionArchives -PqutivexVersion=$tagVersion
 
       - name: Verify Release Artifacts
         shell: pwsh
@@ -68,10 +69,12 @@ jobs:
       - name: Upload Release Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: qutivex-windows-msi
+          name: qutivex-release-artifacts
           path: |
             dist/qutivex-x64.msi
             dist/qutivex-x64.msi.sha256
+            dist/*.tar.gz
+            dist/*.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -80,6 +83,8 @@ jobs:
           files: |
             dist/qutivex-x64.msi
             dist/qutivex-x64.msi.sha256
+            dist/*.tar.gz
+            dist/*.zip
           draft: false
           prerelease: false
           generate_release_notes: true

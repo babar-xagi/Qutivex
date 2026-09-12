@@ -12,12 +12,12 @@ Qutivex provides a modern, high-speed CLI for Kotlin/JVM projects, combining pro
 | `run` | `qutivex run [--verbose] [-- arguments...]` | Compile and run the project entry point, forwarding trailing arguments |
 | `test` | `qutivex test [--verbose]` | Compile and execute unit & integration tests |
 | `build` | `qutivex build [--verbose]` | Compile and produce release distributions under `build/distributions/` |
-| `add` | `qutivex add <coordinate> [-t\|--test] [--verbose]` | Add a dependency to `qutivex.toml` and sync `qutivex.lock` |
-| `remove` | `qutivex remove <coordinate> [-t\|--test] [--verbose]` | Remove a dependency from `qutivex.toml` and update `qutivex.lock` |
-| `update` | `qutivex update <coordinate> [-t\|--test] [--verbose]` | Update an existing dependency to a new version |
+| `add` | `qutivex add <coordinate> [-t\|--test] [--verbose]` | Add a dependency to `qutivex.toml` and sync `qutivex.lock` natively |
+| `remove` | `qutivex remove <coordinate> [-t\|--test] [--verbose]` | Remove a dependency from `qutivex.toml` and update `qutivex.lock` natively |
+| `update` | `qutivex update [coordinate] [--check] [-t\|--test] [--verbose]` | Self-update Qutivex CLI or update an existing project dependency |
 | `list` | `qutivex list` | Display all project dependencies and test dependencies |
-| `tree` | `qutivex tree [--scope <scope>] [--depth <N>] [-v]` | Display the transitive dependency tree hierarchy |
-| `install` | `qutivex install [--frozen] [--offline] [--verbose]` | Download and resolve dependencies; reconcile `qutivex.lock` |
+| `tree` | `qutivex tree [--scope <scope>] [--depth <N>] [-v]` | Display the transitive dependency tree hierarchy from lockfile |
+| `install` | `qutivex install [--frozen] [--offline] [--verbose]` | Resolve and cache dependencies natively; reconcile `qutivex.lock` |
 | `doctor` | `qutivex doctor` | Inspect environment, Java 21 runtime, and Maven Central connectivity |
 | `help` | `qutivex --help`, `qutivex <cmd> --help` | Display general help or command-specific options |
 | `version` | `qutivex --version`, `qutivex -V` | Print current Qutivex version |
@@ -182,12 +182,27 @@ Usage: qutivex list
 
 ### `qutivex update`
 
-Updates an existing direct dependency to a new version, verifies compatibility, updates `qutivex.lock`, and reports transitive changes.
+Updates Qutivex CLI to the latest release, or updates an existing direct project dependency to a new version.
 
 ```text
-Usage: qutivex update <coordinate> [-t|--test] [-v|--verbose]
+Usage: qutivex update [--check]
+       qutivex update <coordinate> [-t|--test] [-v|--verbose]
 ```
 
+#### CLI Self-Update (No arguments)
+- When run without a dependency coordinate, queries the official GitHub releases API for the latest Qutivex release.
+- `--check`: Checks if an update is available and prints the current and latest versions without installing.
+- On Windows: Downloads the official `.msi` installer, verifies its cryptographic SHA-256 digest against the release checksum, and launches the Windows Installer upgrade (`msiexec.exe /i <msi> /qb`). Never directly overwrites `Program Files`.
+- On Linux / macOS: Displays the latest release package download URL and release notes.
+
+**Examples:**
+```powershell
+qutivex update --check
+qutivex update
+```
+
+#### Project Dependency Update
+- Updates an existing direct dependency in `qutivex.toml` and reconciles `qutivex.lock` using the native dependency engine.
 - If resolution fails, Qutivex rolls back `qutivex.toml` and `qutivex.lock` cleanly.
 - Reports what transitive dependencies were upgraded, downgraded, added, or removed.
 
@@ -249,21 +264,23 @@ my-service v0.1.0 (D:\projects\my-service)
 
 ### `qutivex install`
 
-Downloads and reconciles project dependencies with `qutivex.lock`.
+Resolves and caches project dependencies, reconciling `qutivex.lock` using the **Native Dependency Engine** (100% Gradle-free).
 
 ```text
 Usage: qutivex install [--frozen] [--offline] [--verbose]
 ```
 
-- `--frozen`: Enforces strict lockfile compliance (ideal for CI/CD pipelines). If `qutivex.lock` is missing or its `manifest-hash` does not match `qutivex.toml`, the command fails with an actionable error.
-- `--offline`: Resolves dependencies exclusively using the local cache without network queries.
-- `--verbose`: Emits detailed Gradle task and dependency resolution information.
+- `--frozen`: Enforces strict lockfile compliance (ideal for CI/CD pipelines). If `qutivex.lock` is missing or its `manifest-hash` does not match `qutivex.toml`, the command fails with an actionable error. Lockfile is never mutated.
+- `--offline`: Resolves dependencies exclusively using the local cache (`~/.qutivex/cache/`) without network queries.
+- `--offline --frozen`: Performs zero network requests, zero Gradle execution, zero manifest mutations, and zero lockfile mutations while verifying local artifact presence and SHA-256 integrity.
+- `--verbose`: Emits detailed native resolution logs.
 
 **Examples:**
 ```powershell
 qutivex install
 qutivex install --frozen
 qutivex install --offline
+qutivex install --offline --frozen
 qutivex install --verbose
 ```
 

@@ -10,7 +10,6 @@ import dev.qutivex.engine.manifest.ManifestParser
 import dev.qutivex.engine.manifest.ManifestWriter
 import dev.qutivex.engine.project.ProjectLockManager
 import java.io.PrintWriter
-import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -36,7 +35,8 @@ data class UpdateResult(
 
 /**
  * Handles adding, removing, listing, and installing project dependencies.
- * Uses DependencyResolver for dependency graph discovery, ArtifactCache for integrity verification,
+ * Uses NativeDependencyResolver for completely Gradle-free resolution,
+ * ArtifactCache for local caching and integrity verification,
  * and ProjectLockManager for mutual exclusion during project mutations.
  */
 class DependencyManager(
@@ -45,9 +45,12 @@ class DependencyManager(
     private val lockfileManager: LockfileManager = LockfileManager(),
     private val backendGenerator: GradleBackendGenerator = GradleBackendGenerator(),
     private val processRunner: BackendProcessRunner = GradleProcessRunner(),
-    private val dependencyResolver: DependencyResolver = GradleDependencyResolver(backendGenerator, processRunner),
+    dependencyResolver: DependencyResolver? = null,
     private val artifactCache: ArtifactCache = LocalArtifactCache(),
 ) {
+    private val dependencyResolver: DependencyResolver =
+        dependencyResolver ?: NativeDependencyResolver(artifactCache = artifactCache)
+
     fun add(
         projectDir: Path,
         coordinate: DependencyCoordinate,
@@ -77,7 +80,7 @@ class DependencyManager(
         // 1. Stage updated manifest to disk
         manifestWriter.write(manifestFile, updatedManifest)
 
-        // 2. Resolve dependency graph via resolver (validates without compiling)
+        // 2. Resolve dependency graph natively (Gradle-free)
         val graph = try {
             dependencyResolver.resolve(
                 projectDir = projectDir,
@@ -96,6 +99,9 @@ class DependencyManager(
 
         // 3. Update lockfile with full resolved graph
         lockfileManager.write(projectDir, updatedManifest, graph)
+
+        // 4. Update disposable backend files for future run/test/build
+        backendGenerator.generate(projectDir, updatedManifest)
 
         return updatedManifest
     }
@@ -136,7 +142,7 @@ class DependencyManager(
         manifestWriter.write(manifestFile, updatedManifest)
         backendGenerator.generate(projectDir, updatedManifest)
 
-        // Resolve remaining dependencies and update lockfile
+        // Resolve remaining dependencies natively and update lockfile
         val graph = try {
             dependencyResolver.resolve(projectDir, updatedManifest, offline = false, verbose = verbose)
         } catch (_: Exception) {
@@ -187,6 +193,9 @@ class DependencyManager(
                             version = pkg.version,
                             expectedLocation = artifactCache.getExpectedLocation(pkg.group, pkg.artifact, pkg.version),
                         )
+                    } else {
+                        // Online frozen install: resolve missing artifact natively without mutating lockfile
+                        dependencyResolver.resolve(projectDir, manifest, offline = false, verbose = verbose)
                     }
                 } else {
                     // Cached file exists - verify integrity against trusted lockfile checksum
@@ -208,47 +217,10 @@ class DependencyManager(
             lockfileManager.write(projectDir, manifest, resolved)
         }
 
+        // Update disposable backend files for future run/test/build (zero Gradle process execution)
         backendGenerator.generate(projectDir, manifest)
 
-        val extraArgs = mutableListOf("--console=plain", "--build-cache")
-        if (offline) {
-            extraArgs.add("--offline")
-        }
-
-        val outCapture = StringWriter()
-        val outWriter = if (verbose) stdout else PrintWriter(outCapture)
-        val errCapture = StringWriter()
-        val errWriter = if (verbose) stderr else PrintWriter(errCapture)
-
-        val exitCode = processRunner.execute(
-            projectDir = projectDir,
-            tasks = listOf("classes", "testClasses"),
-            extraArgs = extraArgs,
-            stdout = outWriter,
-            stderr = errWriter,
-        )
-
-        if (exitCode != 0) {
-            val errText = errCapture.toString().trim()
-            val combinedText = "$errText\n${outCapture.toString().trim()}"
-            if (offline) {
-                val missingMatch = findMissingOfflineCoordinate(combinedText)
-                if (missingMatch != null) {
-                    val (g, a, v) = missingMatch
-                    throw MissingOfflineArtifactException(
-                        group = g,
-                        artifact = a,
-                        version = v,
-                        expectedLocation = artifactCache.getExpectedLocation(g, a, v),
-                    )
-                }
-            }
-            if (!verbose && errText.isNotBlank()) {
-                stderr.println(errText)
-            }
-        }
-
-        return exitCode
+        return 0
     }
 
     fun update(
@@ -303,7 +275,7 @@ class DependencyManager(
         // 1. Stage updated manifest to disk
         manifestWriter.write(manifestFile, updatedManifest)
 
-        // 2. Resolve dependency graph
+        // 2. Resolve dependency graph natively
         val graph = try {
             dependencyResolver.resolve(
                 projectDir = projectDir,
@@ -323,7 +295,10 @@ class DependencyManager(
         // 3. Write updated lockfile
         lockfileManager.write(projectDir, updatedManifest, graph)
 
-        // 4. Compute transitive changes
+        // 4. Update backend generator files
+        backendGenerator.generate(projectDir, updatedManifest)
+
+        // 5. Compute transitive changes
         val newPackages = graph.packages.associateBy { "${it.group}:${it.artifact}:${it.scope}" }
         val transitiveChanges = mutableListOf<TransitiveChange>()
 
@@ -352,7 +327,7 @@ class DependencyManager(
             oldVersion = oldVersion,
             newVersion = coordinate.version,
             isTest = actualIsTest,
-            transitiveChanges = transitiveChanges.sortedWith(compareBy({ it.scope }, { it.key }))
+            transitiveChanges = transitiveChanges.sortedWith(compareBy({ it.scope }, { it.key })),
         )
     }
 

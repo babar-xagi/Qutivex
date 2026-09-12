@@ -28,7 +28,7 @@ flowchart TD
 
 ## 2. Component Security Specifications
 
-### A. Qutivex Installer (`qutivex-x64.msi`)
+### A. Qutivex Installer & Self-Update (`qutivex-x64.msi`)
 - **Distribution**: Every official release on GitHub Releases publishes the binary installer along with an accompanying SHA-256 digest file:
   - `qutivex-x64.msi`
   - `qutivex-x64.msi.sha256`
@@ -38,9 +38,15 @@ flowchart TD
   $expected = (Get-Content .\qutivex-x64.msi.sha256).Split(" ")[0].ToLower()
   if ($actual -ne $expected) { throw "Installer checksum mismatch!" }
   ```
+- **Self-Update Security (`qutivex update`)**:
+  - The CLI self-updater fetches release manifests strictly over HTTPS from GitHub Releases API (`babar-xagi/Qutivex`).
+  - Downloads the release MSI and its corresponding `.sha256` checksum file.
+  - Computes the SHA-256 digest of the downloaded MSI locally using streaming hashing.
+  - If the computed digest does not match the published release checksum, the downloaded installer is immediately deleted and the upgrade is aborted with a `SecurityException`.
+  - Upgrades are launched via `msiexec.exe /i <msi> /qb`, ensuring Windows Installer manages transaction logging, component registration, and permissions. Qutivex **never** manually overwrites files in `C:\Program Files\`.
 
-### B. Managed Backend & Gradle Wrapper
-- **Pinned Version**: The disposable Gradle backend is pinned to version `9.5.0`.
+### B. Managed Backend (Build/Run/Test Only)
+- **Pinned Version**: The disposable Gradle backend (used temporarily only for `run`, `test`, `build` until Phase 4) is pinned to version `9.5.0`.
 - **Distribution Integrity**:
   - The wrapper configuration (`.qutivex/gradle/gradle/wrapper/gradle-wrapper.properties`) is pinned to HTTPS distribution URLs.
   - The binary wrapper JAR (`gradle-wrapper.jar`) is embedded within the Qutivex distribution and verified before execution.
@@ -50,6 +56,7 @@ flowchart TD
     type = "gradle"
     gradle = "9.5.0"
     ```
+- **Zero Gradle in Dependency Lifecycle**: No Gradle process is launched during `add`, `remove`, `update`, `list`, `tree`, `install`, `install --offline`, or `install --frozen`.
 
 ### C. Maven Artifacts
 - **Repository Identity**: All remote artifact queries use HTTPS to Maven Central.

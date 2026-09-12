@@ -142,7 +142,7 @@ class DependencyManagerTest {
     }
 
     @Test
-    fun `install executes build and updates lockfile`() {
+    fun `install resolves dependencies and updates lockfile without running Gradle`() {
         mockRunner.exitCodeToReturn = 0
         val out = StringWriter()
         val err = StringWriter()
@@ -156,8 +156,8 @@ class DependencyManagerTest {
             stderr = PrintWriter(err),
         )
         assertEquals(0, exitCode)
-        assertEquals(listOf("classes", "testClasses"), mockRunner.lastTasks)
-        assertTrue(mockRunner.lastExtraArgs.contains("--offline"))
+        assertFalse(mockRunner.lastTasks.contains("classes"), "Install must not execute Gradle build tasks")
+        assertFalse(mockRunner.lastTasks.contains("testClasses"), "Install must not execute Gradle test tasks")
 
         val lock = lockfileManager.read(tempDir)
         assertTrue(lock != null)

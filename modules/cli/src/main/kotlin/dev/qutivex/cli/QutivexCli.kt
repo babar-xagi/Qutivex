@@ -10,6 +10,7 @@ import dev.qutivex.engine.manifest.ManifestParseException
 import dev.qutivex.engine.manifest.ManifestParser
 import dev.qutivex.engine.project.ProjectExecutor
 import dev.qutivex.engine.project.ProjectInitializer
+import dev.qutivex.engine.selfupdate.SelfUpdater
 import java.io.InputStream
 import java.io.PrintWriter
 import java.nio.file.Files
@@ -24,6 +25,7 @@ class QutivexCli(
     private val projectExecutor: ProjectExecutor = ProjectExecutor(),
     private val dependencyManager: DependencyManager = DependencyManager(),
     private val diagnostics: EnvironmentDiagnostics = EnvironmentDiagnostics(),
+    private val selfUpdater: SelfUpdater = SelfUpdater(),
 ) {
     fun execute(
         args: List<String>,
@@ -216,6 +218,26 @@ class QutivexCli(
                     )
                     stdout.println(treeOutput)
                     0
+                }
+                is Command.SelfUpdate -> {
+                    val currentVersion = readVersion()
+                    if (command.checkOnly) {
+                        val check = selfUpdater.checkUpdate(currentVersion)
+                        stdout.println("Current: ${check.currentVersion}")
+                        stdout.println("Latest:  ${check.latestVersion}")
+                        if (check.updateAvailable) {
+                            stdout.println("Update available. Run 'qutivex update' to install.")
+                        } else {
+                            stdout.println("Qutivex is up to date.")
+                        }
+                        0
+                    } else {
+                        selfUpdater.executeUpdate(
+                            currentVersion = currentVersion,
+                            stdout = stdout,
+                            stderr = stderr,
+                        )
+                    }
                 }
                 is Command.Update -> {
                     val start = System.currentTimeMillis()
@@ -527,14 +549,16 @@ class QutivexCli(
     private fun parseUpdate(args: List<String>): Command {
         if (args.size == 1 && args.first() in setOf("--help", "-h")) return Command.UpdateHelp
         if (args.isEmpty()) {
-            throw UsageException("Missing dependency coordinate. Usage: qutivex update <coordinate> [--test] [--verbose]")
+            return Command.SelfUpdate(checkOnly = false)
         }
+        var checkOnly = false
         var coordinateStr: String? = null
         var isTest: Boolean? = null
         var verbose = false
         for (arg in args) {
             when {
                 arg in setOf("--help", "-h") -> return Command.UpdateHelp
+                arg == "--check" -> checkOnly = true
                 arg in setOf("--test", "-t") -> isTest = true
                 arg in setOf("--verbose", "-v") -> verbose = true
                 arg.startsWith('-') -> throw UsageException("Unknown option for 'update': $arg")
@@ -543,7 +567,10 @@ class QutivexCli(
             }
         }
         if (coordinateStr == null) {
-            throw UsageException("Missing dependency coordinate. Usage: qutivex update <coordinate> [--test] [--verbose]")
+            return Command.SelfUpdate(checkOnly = checkOnly)
+        }
+        if (checkOnly) {
+            throw UsageException("'--check' is only valid for CLI self-update: 'qutivex update --check'")
         }
         val coordinate = try {
             DependencyCoordinate.parse(coordinateStr)
@@ -614,6 +641,7 @@ class QutivexCli(
         data class Remove(val coordinateKey: String, val isTest: Boolean, val verbose: Boolean = false) : Command
         data object ListDeps : Command
         data class Tree(val scope: String, val maxDepth: Int, val verbose: Boolean = false) : Command
+        data class SelfUpdate(val checkOnly: Boolean = false) : Command
         data class Update(val coordinate: DependencyCoordinate, val isTest: Boolean?, val verbose: Boolean = false) : Command
         data class Install(val frozen: Boolean, val offline: Boolean, val verbose: Boolean = false) : Command
         data object Doctor : Command
@@ -649,7 +677,7 @@ class QutivexCli(
               build               Build project distributions
               add <dep>           Add a dependency to qutivex.toml
               remove <dep>        Remove a dependency from qutivex.toml
-              update <dep>        Update a dependency to a new version
+              update [dep]        Update Qutivex CLI or a project dependency
               list                List project dependencies
               tree                Display transitive dependency tree
               install             Resolve and lock dependencies to qutivex.lock
@@ -754,17 +782,23 @@ class QutivexCli(
         """.trimIndent()
 
         val UPDATE_HELP = """
-            Usage: qutivex update <coordinate> [-t|--test] [-v|--verbose]
+            Usage: qutivex update [--check]
+                   qutivex update <coordinate> [-t|--test] [-v|--verbose]
 
-            Update an existing dependency to a new version in qutivex.toml and qutivex.lock.
+            Update Qutivex CLI or an existing project dependency to a new version.
+            When invoked without arguments, updates Qutivex CLI to the latest release.
+            When invoked with a coordinate, updates the dependency in qutivex.toml and qutivex.lock.
             Coordinates can be specified as 'group:artifact:version' or 'group:artifact@version'.
 
             Options:
+              --check           Check for Qutivex CLI updates without installing
               -t, --test        Update in [test-dependencies]
               -v, --verbose     Show complete resolution output
               -h, --help        Show this help
 
             Examples:
+              qutivex update
+              qutivex update --check
               qutivex update org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2
               qutivex update io.ktor:ktor-client-core@3.0.0
               qutivex update org.junit.jupiter:junit-jupiter:5.10.2 --test
@@ -805,7 +839,7 @@ class QutivexCli(
             Options:
               --frozen          Require qutivex.lock to match qutivex.toml without modifying it (CI mode)
               --offline         Use cached dependencies without network queries
-              -v, --verbose     Show complete Gradle output
+              -v, --verbose     Show complete resolution output
               -h, --help        Show this help
 
             Examples:

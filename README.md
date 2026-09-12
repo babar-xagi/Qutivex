@@ -153,9 +153,32 @@ Output:
 ➖ Removed io.ktor:ktor-client-core ⏱️ (150ms)
 ```
 
-### 8. Lockfile & CI Installation (`install`)
+### 8. Inspect Dependency Tree (`tree`)
 
-Qutivex automatically maintains a deterministic `qutivex.lock` file recording SHA-256 integrity hashes of your dependencies and toolchain.
+Render the transitive dependency graph directly from `qutivex.lock` in milliseconds:
+
+```powershell
+qutivex tree
+qutivex tree --scope runtime
+qutivex tree --depth 2
+```
+
+### 9. Update Dependencies or Qutivex CLI (`update`)
+
+Update a project dependency with automatic compatibility checks, lockfile synchronization, and rollback safety:
+```powershell
+qutivex update org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2
+```
+
+Or self-update Qutivex CLI itself to the latest release:
+```powershell
+qutivex update --check   # Check if a new version is available
+qutivex update           # Download, verify SHA-256, and launch Windows MSI upgrade
+```
+
+### 10. Lockfile & CI Installation (`install`)
+
+Qutivex automatically maintains a deterministic `qutivex.lock` file recording SHA-256 integrity hashes of your dependencies and toolchain using its **native dependency engine** (zero Gradle involvement).
 
 In CI/CD environments, enforce strict reproducibility with `--frozen`:
 
@@ -172,14 +195,17 @@ Output:
 For offline or air-gapped environments:
 ```powershell
 qutivex install --offline
+qutivex install --offline --frozen
 ```
 
 ---
 
-## ⚡ Performance
+## ⚡ Performance & Native Engine
 
 Qutivex is tuned for instant developer feedback:
-- **Persistent Compilation Daemons**: Reuses background daemons to eliminate JVM cold-start overhead.
+- **Native Dependency Engine (Phase 3.5)**: Dependency resolution, POM parsing (parent chains, BOM imports, exclusions, version conflicts), artifact downloading, and caching are executed natively in pure Kotlin without Gradle overhead.
+- **Dedicated Artifact Cache**: Artifacts and POMs are cached under `~/.qutivex/cache/` with SHA-256 integrity checks, corruption detection, and concurrent-download locking.
+- **Persistent Compilation Daemons**: Reuses background daemons for compilation to eliminate JVM cold-start overhead.
 - **Build Cache (`--build-cache`)**: Warm builds and runs execute in under 2 seconds.
 - **VFS File Watching**: Incremental changes are tracked continuously.
 - **Elapsed Timing**: Every command reports exact execution times so you know where your time is spent.
@@ -194,12 +220,12 @@ Qutivex is tuned for instant developer feedback:
 | `qutivex run [-- args]` | Compile and run the application entry point with optional arguments |
 | `qutivex test` | Compile and run unit & integration tests |
 | `qutivex build` | Build release application distributions under `build/distributions/` |
-| `qutivex add <coordinate> [-t\|--test]` | Add a dependency and sync lockfile (`group:artifact:version` or `@version`) |
-| `qutivex remove <coordinate> [-t\|--test]` | Remove a dependency from `qutivex.toml` and update lockfile |
-| `qutivex update <coordinate> [-t\|--test]` | Update an existing dependency to a new version |
+| `qutivex add <coordinate> [-t\|--test]` | Add a dependency and sync lockfile via native resolver (`group:artifact:version` or `@version`) |
+| `qutivex remove <coordinate> [-t\|--test]` | Remove a dependency from `qutivex.toml` and update lockfile natively |
+| `qutivex update [coordinate] [--check]` | Self-update Qutivex CLI (`qutivex update [--check]`) or update a dependency (`qutivex update <coord>`) |
 | `qutivex list` | Display declared runtime and test dependencies |
-| `qutivex tree [--scope <scope>] [--depth <N>]` | Render the transitive dependency tree hierarchy |
-| `qutivex install [--frozen] [--offline]` | Download and lock dependencies (CI `--frozen`, offline cache `--offline`) |
+| `qutivex tree [--scope <scope>] [--depth <N>]` | Render the transitive dependency tree hierarchy from lockfile |
+| `qutivex install [--frozen] [--offline]` | Download and lock dependencies natively (CI `--frozen`, offline cache `--offline`) |
 | `qutivex doctor` | Inspect local environment, JDK 21 installation, and Maven Central connectivity |
 | `qutivex --version` | Display installed Qutivex version |
 | `qutivex --help` | Show general help or command-specific options (`qutivex <command> --help`) |

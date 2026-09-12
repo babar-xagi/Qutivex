@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.5] - 2026-09-12
+
+### Added
+- **Phase 3.5 — Native Dependency Engine & CLI Self-Update**:
+  - **Native Maven Repository Client**:
+    - Pure Kotlin streaming HTTP client with TLS support to Maven Central (`https://repo.maven.apache.org/maven2/`).
+    - Exponential backoff retries, connection timeouts, and HTTP status code validation.
+    - Streaming SHA-256 calculation and atomic download moves (`.tmp.<uuid>` to final destination).
+  - **Native DOM POM & BOM Parser**:
+    - Recursively resolves and merges parent POM inheritance hierarchies.
+    - Full Maven property interpolation (`${...}`, `${project.version}`, `${project.groupId}`, parent properties).
+    - Supports `dependencyManagement` with imported BOMs (`<scope>import</scope>`, `<type>pom</type>`).
+    - Transitive `PomExclusion` matching and suppression of `<optional>true</optional>` dependencies.
+    - Maven scope mapping (`compile`, `runtime`, `test`, `provided`).
+  - **Deterministic Graph Resolver & Version Ordering**:
+    - Maven-compliant `ComparableVersion` supporting numeric tokens, qualifiers (`alpha`, `beta`, `rc`, `snapshot`, `final`/`ga`/`release`, `sp`), and zero padding equivalence (`1.0 == 1.0.0`).
+    - Highest-version conflict resolution across all graph depths.
+    - Circular dependency tracking and cycle detection.
+  - **Dedicated Artifact Cache (`~/.qutivex/cache/`)**:
+    - Structured subdirectories: `artifacts/`, `poms/`, `metadata/`, `temp/`.
+    - Concurrent-download deduplication via `withLock(coordinateKey)`.
+    - Cryptographic SHA-256 integrity verification on install, rejecting corrupted or modified artifacts with `ArtifactIntegrityException`.
+  - **Complete Gradle Removal from Dependency Management**:
+    - Dependency commands never invoke Gradle: `qutivex add`, `qutivex remove`, `qutivex update <dep>`, `qutivex list`, `qutivex tree`, `qutivex install`, `qutivex install --offline`, `qutivex install --frozen`, `qutivex install --offline --frozen`.
+    - Zero network, zero Gradle, zero manifest mutation, and zero lockfile mutation in `--offline --frozen` mode.
+    - Gradle remains temporarily *only* for `run`, `test`, and `build` until Phase 4.
+  - **CLI Self-Updater**:
+    - `qutivex update` (without arguments) self-updates Qutivex CLI to latest release via GitHub API.
+    - `qutivex update --check` checks for newer versions without installing.
+    - On Windows, downloads MSI, verifies SHA-256 against release digest, and launches MSI upgrade (`msiexec.exe /i <msi> /qb`) without manually modifying `Program Files`.
+  - **Comprehensive Test Suite & Benchmarks**:
+    - Added unit/integration tests for POM parsing, BOMs, exclusions, conflicts, cycles, scopes, cache integrity, offline mode, and Gradle independence.
+    - Verified 100% Gradle independence in `Phase35IntegrationTest` with poisoned Gradle wrapper.
+
+---
+
 ## [0.3.0] - 2026-09-12
 
 ### Added

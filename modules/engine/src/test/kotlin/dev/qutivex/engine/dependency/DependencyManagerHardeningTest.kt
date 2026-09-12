@@ -105,7 +105,7 @@ class DependencyManagerHardeningTest {
         )
 
         assertEquals(0, exitCode)
-        assertTrue(mockRunner.lastExtraArgs.contains("--offline"))
+        assertTrue(mockRunner.lastTasks.isEmpty(), "Install must not execute Gradle tasks")
 
         // Verify lockfile was NOT modified during frozen install
         val lockfileContentAfter = Files.readString(tempDir.resolve("qutivex.lock"))

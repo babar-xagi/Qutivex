@@ -4,6 +4,7 @@ import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 class ArtifactIntegrityException(
     val group: String,
@@ -17,7 +18,7 @@ class ArtifactIntegrityException(
         append("Expected SHA-256:\n$expectedSha256\n\n")
         append("Actual SHA-256:\n$actualSha256\n\n")
         append("The cached artifact may be corrupted or modified.")
-    }
+    },
 ) : DependencyException(message)
 
 class MissingOfflineArtifactException(
@@ -30,7 +31,7 @@ class MissingOfflineArtifactException(
         append("Missing artifact:\n$group:$artifact:$version\n\n")
         append("Expected cache location:\n$expectedLocation\n\n")
         append("Run without --offline when network access is available.")
-    }
+    },
 ) : DependencyException(message)
 
 /**
@@ -39,10 +40,24 @@ class MissingOfflineArtifactException(
 interface ArtifactCache {
     fun getCacheDir(): Path
     fun contains(group: String, artifact: String, version: String): Boolean
-    fun findArtifact(group: String, artifact: String, version: String): Path?
+    fun findArtifact(
+        group: String,
+        artifact: String,
+        version: String,
+        packaging: String = "jar",
+        classifier: String? = null,
+    ): Path?
     fun findPom(group: String, artifact: String, version: String): Path?
-    fun getExpectedLocation(group: String, artifact: String, version: String): Path
+    fun getExpectedLocation(
+        group: String,
+        artifact: String,
+        version: String,
+        packaging: String = "jar",
+        classifier: String? = null,
+    ): Path
+    fun getExpectedPomLocation(group: String, artifact: String, version: String): Path
     fun verifyIntegrity(group: String, artifact: String, version: String, expectedChecksum: String?): Path?
+    fun <T> withLock(key: String, block: () -> T): T
 }
 
 class LocalArtifactCache(
@@ -50,11 +65,25 @@ class LocalArtifactCache(
     private val customGradleCacheDir: Path? = null,
 ) : ArtifactCache {
 
+    private val coordinateLocks = ConcurrentHashMap<String, Any>()
+
+    override fun <T> withLock(key: String, block: () -> T): T {
+        val lockObj = coordinateLocks.computeIfAbsent(key) { Any() }
+        return synchronized(lockObj) {
+            block()
+        }
+    }
+
     override fun getCacheDir(): Path {
         if (customDir != null) return customDir
         val home = System.getProperty("user.home") ?: "."
         return Path.of(home, ".qutivex", "cache").toAbsolutePath().normalize()
     }
+
+    fun getArtifactsDir(): Path = getCacheDir().resolve("artifacts")
+    fun getPomsDir(): Path = getCacheDir().resolve("poms")
+    fun getMetadataDir(): Path = getCacheDir().resolve("metadata")
+    fun getTempDir(): Path = getCacheDir().resolve("temp")
 
     private fun getGradleCacheDir(): Path {
         if (customGradleCacheDir != null) return customGradleCacheDir
@@ -66,39 +95,49 @@ class LocalArtifactCache(
         return findArtifact(group, artifact, version) != null || findPom(group, artifact, version) != null
     }
 
-    override fun findArtifact(group: String, artifact: String, version: String): Path? {
-        val jarName = "$artifact-$version.jar"
+    override fun findArtifact(
+        group: String,
+        artifact: String,
+        version: String,
+        packaging: String,
+        classifier: String?,
+    ): Path? {
+        val jarName = buildArtifactFileName(artifact, version, packaging, classifier)
 
-        // 1. Check customDir if provided (e.g. for testing)
+        // 1. Check native Qutivex artifacts cache: ~/.qutivex/cache/artifacts/<group>/<artifact>/<version>/<file>
+        val nativeArtifact = getArtifactsDir().resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve(jarName)
+        if (Files.exists(nativeArtifact) && Files.size(nativeArtifact) > 0) return nativeArtifact
+
+        // 2. Check legacy Qutivex cache: ~/.qutivex/cache/<group>/<artifact>/<version>/<file>
+        val legacyArtifact = getCacheDir().resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve(jarName)
+        if (Files.exists(legacyArtifact) && Files.size(legacyArtifact) > 0) return legacyArtifact
+
+        // 3. Check customDir direct or nested (e.g. for testing)
         if (customDir != null && Files.exists(customDir)) {
             val direct = customDir.resolve(jarName)
-            if (Files.exists(direct)) return direct
+            if (Files.exists(direct) && Files.size(direct) > 0) return direct
 
-            val nested = customDir.resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve(jarName)
-            if (Files.exists(nested)) return nested
+            val customNested = customDir.resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve(jarName)
+            if (Files.exists(customNested) && Files.size(customNested) > 0) return customNested
 
             try {
                 val found = Files.walk(customDir, 5)
-                    .filter { Files.isRegularFile(it) && it.fileName.toString() == jarName }
+                    .filter { Files.isRegularFile(it) && it.fileName.toString() == jarName && Files.size(it) > 0 }
                     .findFirst()
                 if (found.isPresent) return found.get()
             } catch (_: Exception) {}
         }
 
-        // 2. Check Gradle files-2.1 cache
+        // 4. Check Gradle files-2.1 cache as fallback
         val gradleDir = getGradleCacheDir().resolve(group).resolve(artifact).resolve(version)
         if (Files.exists(gradleDir) && Files.isDirectory(gradleDir)) {
             try {
                 val found = Files.walk(gradleDir, 3)
-                    .filter { Files.isRegularFile(it) && it.fileName.toString() == jarName }
+                    .filter { Files.isRegularFile(it) && it.fileName.toString() == jarName && Files.size(it) > 0 }
                     .findFirst()
                 if (found.isPresent) return found.get()
             } catch (_: Exception) {}
         }
-
-        // 3. Check Qutivex cache
-        val qutivexJar = getCacheDir().resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve(jarName)
-        if (Files.exists(qutivexJar)) return qutivexJar
 
         return null
     }
@@ -106,42 +145,58 @@ class LocalArtifactCache(
     override fun findPom(group: String, artifact: String, version: String): Path? {
         val pomName = "$artifact-$version.pom"
 
+        // 1. Check native Qutivex poms cache: ~/.qutivex/cache/poms/<group>/<artifact>/<version>/<file>
+        val nativePom = getPomsDir().resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve(pomName)
+        if (Files.exists(nativePom) && Files.size(nativePom) > 0) return nativePom
+
+        // 2. Check legacy Qutivex cache: ~/.qutivex/cache/<group>/<artifact>/<version>/<file>
+        val legacyPom = getCacheDir().resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve(pomName)
+        if (Files.exists(legacyPom) && Files.size(legacyPom) > 0) return legacyPom
+
+        // 3. Check customDir direct or nested
         if (customDir != null && Files.exists(customDir)) {
             val direct = customDir.resolve(pomName)
-            if (Files.exists(direct)) return direct
+            if (Files.exists(direct) && Files.size(direct) > 0) return direct
 
-            val nested = customDir.resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve(pomName)
-            if (Files.exists(nested)) return nested
+            val customNested = customDir.resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve(pomName)
+            if (Files.exists(customNested) && Files.size(customNested) > 0) return customNested
 
             try {
                 val found = Files.walk(customDir, 5)
-                    .filter { Files.isRegularFile(it) && it.fileName.toString() == pomName }
+                    .filter { Files.isRegularFile(it) && it.fileName.toString() == pomName && Files.size(it) > 0 }
                     .findFirst()
                 if (found.isPresent) return found.get()
             } catch (_: Exception) {}
         }
 
+        // 4. Check Gradle files-2.1 cache
         val gradleDir = getGradleCacheDir().resolve(group).resolve(artifact).resolve(version)
         if (Files.exists(gradleDir) && Files.isDirectory(gradleDir)) {
             try {
                 val found = Files.walk(gradleDir, 3)
-                    .filter { Files.isRegularFile(it) && it.fileName.toString() == pomName }
+                    .filter { Files.isRegularFile(it) && it.fileName.toString() == pomName && Files.size(it) > 0 }
                     .findFirst()
                 if (found.isPresent) return found.get()
             } catch (_: Exception) {}
         }
 
-        val qutivexPom = getCacheDir().resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve(pomName)
-        if (Files.exists(qutivexPom)) return qutivexPom
-
         return null
     }
 
-    override fun getExpectedLocation(group: String, artifact: String, version: String): Path {
-        if (customDir != null) {
-            return customDir.resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve("$artifact-$version.jar")
-        }
-        return getGradleCacheDir().resolve(group).resolve(artifact).resolve(version).resolve("$artifact-$version.jar")
+    override fun getExpectedLocation(
+        group: String,
+        artifact: String,
+        version: String,
+        packaging: String,
+        classifier: String?,
+    ): Path {
+        val fileName = buildArtifactFileName(artifact, version, packaging, classifier)
+        return getArtifactsDir().resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve(fileName)
+    }
+
+    override fun getExpectedPomLocation(group: String, artifact: String, version: String): Path {
+        val fileName = "$artifact-$version.pom"
+        return getPomsDir().resolve(group.replace('.', '/')).resolve(artifact).resolve(version).resolve(fileName)
     }
 
     override fun verifyIntegrity(
@@ -171,6 +226,14 @@ class LocalArtifactCache(
         }
 
         return file
+    }
+
+    private fun buildArtifactFileName(artifact: String, version: String, packaging: String, classifier: String?): String {
+        return if (classifier.isNullOrBlank()) {
+            "$artifact-$version.$packaging"
+        } else {
+            "$artifact-$version-$classifier.$packaging"
+        }
     }
 
     companion object {
