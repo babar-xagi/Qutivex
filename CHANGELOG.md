@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.0] - 2026-09-12
+
+### Added
+- **Phase 4 — Native Kotlin/JVM Build Engine**:
+  - **Complete Gradle Removal**:
+    - Removed Gradle completely from `qutivex build`, `qutivex run`, and `qutivex test`.
+    - Normal Kotlin/JVM projects no longer generate or invoke Gradle backends.
+    - Full developer lifecycle (`init`, `add`, `remove`, `install`, `update`, `tree`, `list`, `build`, `run`, `test`) is 100% Gradle-free.
+  - **Native Source Scanner (`SourceScanner`)**:
+    - Discovers Kotlin and Java source files (`src/main/kotlin`, `src/test/kotlin`).
+    - Discovers resource files (`src/main/resources`, `src/test/resources`) preserving relative hierarchy.
+    - Computes metadata and SHA-256 digests for incremental tracking.
+  - **Native Classpath Builder (`ClasspathBuilder`)**:
+    - Builds compile, runtime, test-compile, and test-runtime classpaths from `qutivex.lock` and `LocalArtifactCache`.
+    - Bundles and resolves toolchain standard libraries (`kotlin-stdlib`, `annotations`, `kotlin-test`, `junit-jupiter`).
+  - **Direct Kotlin Compiler Invocation (`KotlinCompilerRunner`)**:
+    - In-process execution of `K2JVMCompiler` (`org.jetbrains.kotlin:kotlin-compiler-embeddable`).
+    - Supports JVM target selection (JDK 21), destination directory output, and structured compiler error diagnostics.
+  - **Native Test Runner (`NativeTestRunner` & `QutivexTestWorker`)**:
+    - Executes unit and integration tests natively using the JUnit Platform Launcher.
+    - Runs in an isolated test worker process with real-time test event output (`PASSED`, `FAILED`, `SKIPPED`).
+  - **Incremental Build Cache & Safe Fingerprints (`IncrementalBuildManager`)**:
+    - Computes SHA-256 fingerprints across sources, resources, classpaths, and toolchain configurations.
+    - Skips compilation when inputs are unchanged (`UP-TO-DATE`), achieving sub-second execution.
+  - **Standalone Executable JAR Packaging (`JarPackager`)**:
+    - Assembles classes, resources, and bundled runtime dependencies into `build/libs/<project>-<version>.jar`.
+    - Writes `Main-Class` to `META-INF/MANIFEST.MF` for immediate execution via `java -jar <jar>`.
+  - **Performance Benchmarks & Comprehensive Verification**:
+    - Verified complete zero-Gradle execution with corrupted Gradle wrappers (`Phase4IntegrationTest`).
+    - Sub-second incremental builds and test executions.
+  - **JUnit Platform Alignment & Classpath Conflict Purging**:
+    - Bundled and locked test toolchains dynamically aligned to JUnit Jupiter `5.12.2` and JUnit Platform `1.12.2`.
+    - Automatically purges conflicting or legacy JUnit platform engines, launchers, and commons to prevent `OutputDirectoryProvider not available` runtime failures.
+    - Classpath deduplication ensures only compatible launcher components are dispatched to the isolated test worker process.
+  - **Windows Console & Unicode Terminal Enhancements**:
+    - Upgraded standard CLI output handling using Win32 `WriteConsoleW` via `System.console()?.writer()`.
+    - Eliminates UTF-8 emoji and glyph corruption across Windows PowerShell, CMD, and Windows Terminal without requiring external script wrappers or triggering PowerShell `ExecutionPolicy` restrictions.
+
+---
+
 ## [0.3.5] - 2026-09-12
 
 ### Added

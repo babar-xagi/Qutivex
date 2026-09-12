@@ -12,7 +12,16 @@ fun main(args: Array<String>) {
     System.setProperty("stdout.encoding", "UTF-8")
     System.setProperty("stderr.encoding", "UTF-8")
 
-    val stdout = PrintWriter(OutputStreamWriter(System.out, StandardCharsets.UTF_8), true)
+    // On Windows, Java 21's System.console()?.writer() writes directly to the Win32 console
+    // via WriteConsoleW using native wide UTF-16 code units. This avoids code page mismatch
+    // (e.g. CP437/CP1252 in PowerShell) and renders Unicode emoji characters natively.
+    // When redirected or running in headless pipelines, fall back to UTF-8 OutputStreamWriter.
+    val console = System.console()
+    val stdout = if (console != null) {
+        console.writer()
+    } else {
+        PrintWriter(OutputStreamWriter(System.out, StandardCharsets.UTF_8), true)
+    }
     val stderr = PrintWriter(OutputStreamWriter(System.err, StandardCharsets.UTF_8), true)
 
     exitProcess(

@@ -4,6 +4,7 @@ import dev.qutivex.core.manifest.ManifestSpec
 import dev.qutivex.engine.backend.gradle.BackendProcessRunner
 import dev.qutivex.engine.backend.gradle.GradleBackendGenerator
 import dev.qutivex.engine.backend.gradle.GradleProcessRunner
+import dev.qutivex.engine.build.NativeBuildEngine
 import dev.qutivex.engine.manifest.ManifestParser
 import java.io.InputStream
 import java.io.PrintWriter
@@ -11,12 +12,19 @@ import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
 
-/** Orchestrates manifest parsing, disposable backend generation, and project execution. */
+/**
+ * Orchestrates manifest parsing and project execution.
+ * Uses NativeBuildEngine by default for completely Gradle-free, high-performance execution.
+ */
 class ProjectExecutor(
     private val manifestParser: ManifestParser = ManifestParser(),
     private val backendGenerator: GradleBackendGenerator = GradleBackendGenerator(),
     private val processRunner: BackendProcessRunner = GradleProcessRunner(),
+    private val nativeBuildEngine: NativeBuildEngine = NativeBuildEngine(manifestParser = manifestParser),
 ) {
+    /** True if a custom non-default process runner was injected (e.g., in unit tests). */
+    private val isLegacyRunner: Boolean = processRunner !is GradleProcessRunner
+
     fun run(
         projectDir: Path,
         args: List<String> = emptyList(),
@@ -25,6 +33,17 @@ class ProjectExecutor(
         stdin: InputStream? = null,
         verbose: Boolean = false,
     ): Int {
+        if (!isLegacyRunner) {
+            return nativeBuildEngine.run(
+                projectDir = projectDir,
+                args = args,
+                stdout = stdout,
+                stderr = stderr,
+                stdin = stdin,
+                verbose = verbose,
+            )
+        }
+
         val manifest = prepare(projectDir)
         val argsFile = projectDir.resolve(".qutivex/gradle/application-args.txt")
         if (args.isNotEmpty()) {
@@ -56,6 +75,15 @@ class ProjectExecutor(
         stderr: PrintWriter,
         verbose: Boolean = false,
     ): Int {
+        if (!isLegacyRunner) {
+            return nativeBuildEngine.test(
+                projectDir = projectDir,
+                stdout = stdout,
+                stderr = stderr,
+                verbose = verbose,
+            )
+        }
+
         prepare(projectDir)
         val extraArgs = listOf("--console=plain", "--build-cache")
         if (verbose) {
@@ -109,6 +137,15 @@ class ProjectExecutor(
         stderr: PrintWriter,
         verbose: Boolean = false,
     ): Int {
+        if (!isLegacyRunner) {
+            return nativeBuildEngine.build(
+                projectDir = projectDir,
+                stdout = stdout,
+                stderr = stderr,
+                verbose = verbose,
+            )
+        }
+
         prepare(projectDir)
         val extraArgs = listOf("--console=plain", "--build-cache")
         if (verbose) {
