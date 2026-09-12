@@ -44,6 +44,9 @@ tasks.named<CreateStartScripts>("startScripts") {
             val content = winScript.readText(Charsets.UTF_8)
             val regex = Regex("(?s)@rem Find java\\.exe.*?:execute\\r?\\n")
             val customJavaCheck = """
+@rem Set active code page to UTF-8 for clean Unicode emoji output
+@chcp 65001 >nul 2>&1
+
 @rem Find java.exe and validate JDK 21 requirement
 if not defined JAVA_HOME goto findJavaFromPath
 set "JAVA_HOME=%JAVA_HOME:"=%"

@@ -6,10 +6,12 @@ import dev.qutivex.engine.dependency.DependencyManager
 import dev.qutivex.engine.diagnostics.EnvironmentDiagnostics
 import dev.qutivex.engine.lockfile.LockfileException
 import dev.qutivex.engine.manifest.ManifestParseException
+import dev.qutivex.engine.manifest.ManifestParser
 import dev.qutivex.engine.project.ProjectExecutor
 import dev.qutivex.engine.project.ProjectInitializer
 import java.io.InputStream
 import java.io.PrintWriter
+import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.util.Locale
@@ -88,43 +90,54 @@ class QutivexCli(
                     val code = projectExecutor.run(
                         projectDir = workingDirectory,
                         args = command.forwardArgs,
+                        verbose = command.verbose,
                         stdout = stdout,
                         stderr = stderr,
                         stdin = stdin,
                     )
                     val elapsed = System.currentTimeMillis() - start
                     if (code == 0) {
-                        stdout.println("✨ Finished in ${formatDuration(elapsed)}")
+                        stdout.println("⏱️ Finished in ${formatDuration(elapsed)}")
                     } else {
-                        stdout.println("❌ Failed in ${formatDuration(elapsed)}")
+                        stdout.println("❌ Run failed in ${formatDuration(elapsed)}")
                     }
                     code
                 }
-                Command.Test -> {
+                is Command.Test -> {
+                    stdout.println("🧪 Running tests...")
                     val start = System.currentTimeMillis()
                     val code = projectExecutor.test(
                         projectDir = workingDirectory,
+                        verbose = command.verbose,
                         stdout = stdout,
                         stderr = stderr,
                     )
                     val elapsed = System.currentTimeMillis() - start
                     if (code == 0) {
-                        stdout.println("🧪 Tests passed in ${formatDuration(elapsed)}")
+                        stdout.println("✅ Tests passed in ${formatDuration(elapsed)}")
                     } else {
                         stdout.println("❌ Tests failed in ${formatDuration(elapsed)}")
                     }
                     code
                 }
-                Command.Build -> {
+                is Command.Build -> {
+                    val projectName = try {
+                        val mf = workingDirectory.resolve("qutivex.toml")
+                        if (Files.exists(mf)) ManifestParser().parse(mf).project.name else "project"
+                    } catch (_: Exception) {
+                        "project"
+                    }
+                    stdout.println("📦 Building $projectName...")
                     val start = System.currentTimeMillis()
                     val code = projectExecutor.build(
                         projectDir = workingDirectory,
+                        verbose = command.verbose,
                         stdout = stdout,
                         stderr = stderr,
                     )
                     val elapsed = System.currentTimeMillis() - start
                     if (code == 0) {
-                        stdout.println("📦 Build completed in ${formatDuration(elapsed)}")
+                        stdout.println("✅ Build completed in ${formatDuration(elapsed)}")
                     } else {
                         stdout.println("❌ Build failed in ${formatDuration(elapsed)}")
                     }
@@ -137,6 +150,7 @@ class QutivexCli(
                         projectDir = workingDirectory,
                         coordinate = command.coordinate,
                         isTest = command.isTest,
+                        verbose = command.verbose,
                         stdout = stdout,
                         stderr = stderr,
                     )
@@ -151,6 +165,7 @@ class QutivexCli(
                         projectDir = workingDirectory,
                         coordinateKey = command.coordinateKey,
                         isTest = command.isTest,
+                        verbose = command.verbose,
                     )
                     val elapsed = System.currentTimeMillis() - start
                     stdout.println("➖ Removed ${command.coordinateKey} ⏱️ (${formatDuration(elapsed)})")
@@ -190,12 +205,13 @@ class QutivexCli(
                         projectDir = workingDirectory,
                         frozen = command.frozen,
                         offline = command.offline,
+                        verbose = command.verbose,
                         stdout = stdout,
                         stderr = stderr,
                     )
                     val elapsed = System.currentTimeMillis() - start
                     if (code == 0) {
-                        stdout.println("✨ Dependencies locked and installed in ${formatDuration(elapsed)}")
+                        stdout.println("✅ Dependencies installed in ${formatDuration(elapsed)}")
                     } else {
                         stdout.println("❌ Installation failed in ${formatDuration(elapsed)}")
                     }
@@ -279,104 +295,116 @@ class QutivexCli(
 
     private fun parseRun(args: List<String>): Command {
         if (args.size == 1 && args.first() in setOf("--help", "-h")) return Command.RunHelp
+        var verbose = false
+        val forwardArgs: List<String>
         if (args.contains("--")) {
             val dashIndex = args.indexOf("--")
             val beforeDash = args.subList(0, dashIndex)
-            val afterDash = args.subList(dashIndex + 1, args.size)
+            forwardArgs = args.subList(dashIndex + 1, args.size)
             for (arg in beforeDash) {
-                if (arg.startsWith('-')) {
-                    throw UsageException("Unknown option for 'run': $arg")
+                when {
+                    arg in setOf("--verbose", "-v") -> verbose = true
+                    arg.startsWith('-') -> throw UsageException("Unknown option for 'run': $arg")
+                    else -> throw UsageException("Unexpected argument for 'run': $arg. Arguments to the application must follow '--'.")
                 }
-                throw UsageException("Unexpected argument for 'run': $arg. Arguments to the application must follow '--'.")
             }
-            return Command.Run(afterDash)
-        }
-        if (args.isNotEmpty()) {
-            val first = args.first()
-            if (first.startsWith('-')) {
-                throw UsageException("Unknown option for 'run': $first")
+        } else {
+            forwardArgs = emptyList()
+            for (arg in args) {
+                when {
+                    arg in setOf("--verbose", "-v") -> verbose = true
+                    arg.startsWith('-') -> throw UsageException("Unknown option for 'run': $arg")
+                    else -> throw UsageException("Unexpected argument for 'run': $arg. Use '--' to pass arguments to the application.")
+                }
             }
-            throw UsageException("Unexpected argument for 'run': $first. Use '--' to pass arguments to the application.")
         }
-        return Command.Run(emptyList())
+        return Command.Run(forwardArgs, verbose)
     }
 
     private fun parseTest(args: List<String>): Command {
         if (args.size == 1 && args.first() in setOf("--help", "-h")) return Command.TestHelp
-        if (args.isNotEmpty()) {
-            val first = args.first()
-            if (first.startsWith('-')) {
-                throw UsageException("Unknown option for 'test': $first")
+        var verbose = false
+        for (arg in args) {
+            when {
+                arg in setOf("--help", "-h") -> return Command.TestHelp
+                arg in setOf("--verbose", "-v") -> verbose = true
+                arg.startsWith('-') -> throw UsageException("Unknown option for 'test': $arg")
+                else -> throw UsageException("'test' does not accept positional arguments.")
             }
-            throw UsageException("'test' does not accept additional arguments.")
         }
-        return Command.Test
+        return Command.Test(verbose)
     }
 
     private fun parseBuild(args: List<String>): Command {
         if (args.size == 1 && args.first() in setOf("--help", "-h")) return Command.BuildHelp
-        if (args.isNotEmpty()) {
-            val first = args.first()
-            if (first.startsWith('-')) {
-                throw UsageException("Unknown option for 'build': $first")
+        var verbose = false
+        for (arg in args) {
+            when {
+                arg in setOf("--help", "-h") -> return Command.BuildHelp
+                arg in setOf("--verbose", "-v") -> verbose = true
+                arg.startsWith('-') -> throw UsageException("Unknown option for 'build': $arg")
+                else -> throw UsageException("'build' does not accept positional arguments.")
             }
-            throw UsageException("'build' does not accept additional arguments.")
         }
-        return Command.Build
+        return Command.Build(verbose)
     }
 
     private fun parseAdd(args: List<String>): Command {
         if (args.size == 1 && args.first() in setOf("--help", "-h")) return Command.AddHelp
         if (args.isEmpty()) {
-            throw UsageException("Missing dependency coordinate. Usage: qutivex add <coordinate> [--test]")
+            throw UsageException("Missing dependency coordinate. Usage: qutivex add <coordinate> [--test] [--verbose]")
         }
         var coordinateStr: String? = null
         var isTest = false
+        var verbose = false
         for (arg in args) {
             when {
                 arg in setOf("--help", "-h") -> return Command.AddHelp
                 arg in setOf("--test", "-t") -> isTest = true
+                arg in setOf("--verbose", "-v") -> verbose = true
                 arg.startsWith('-') -> throw UsageException("Unknown option for 'add': $arg")
                 coordinateStr != null -> throw UsageException("'add' accepts at most one dependency coordinate.")
                 else -> coordinateStr = arg
             }
         }
         if (coordinateStr == null) {
-            throw UsageException("Missing dependency coordinate. Usage: qutivex add <coordinate> [--test]")
+            throw UsageException("Missing dependency coordinate. Usage: qutivex add <coordinate> [--test] [--verbose]")
         }
         val coordinate = try {
             DependencyCoordinate.parse(coordinateStr)
         } catch (e: IllegalArgumentException) {
             throw UsageException(e.message ?: "Invalid dependency coordinate.")
         }
-        return Command.Add(coordinate, isTest)
+        return Command.Add(coordinate, isTest, verbose)
     }
 
     private fun parseRemove(args: List<String>): Command {
         if (args.size == 1 && args.first() in setOf("--help", "-h")) return Command.RemoveHelp
         if (args.isEmpty()) {
-            throw UsageException("Missing dependency coordinate. Usage: qutivex remove <coordinate> [--test]")
+            throw UsageException("Missing dependency coordinate. Usage: qutivex remove <coordinate> [--test] [--verbose]")
         }
         var coordinateStr: String? = null
         var isTest = false
+        var verbose = false
         for (arg in args) {
             when {
                 arg in setOf("--help", "-h") -> return Command.RemoveHelp
                 arg in setOf("--test", "-t") -> isTest = true
+                arg in setOf("--verbose", "-v") -> verbose = true
                 arg.startsWith('-') -> throw UsageException("Unknown option for 'remove': $arg")
                 coordinateStr != null -> throw UsageException("'remove' accepts at most one dependency coordinate.")
                 else -> coordinateStr = arg
             }
         }
         if (coordinateStr == null) {
-            throw UsageException("Missing dependency coordinate. Usage: qutivex remove <coordinate> [--test]")
+            throw UsageException("Missing dependency coordinate. Usage: qutivex remove <coordinate> [--test] [--verbose]")
         }
         val key = try {
             DependencyCoordinate.parseKey(coordinateStr)
         } catch (e: IllegalArgumentException) {
             throw UsageException(e.message ?: "Invalid dependency coordinate.")
         }
-        return Command.Remove(key, isTest)
+        return Command.Remove(key, isTest, verbose)
     }
 
     private fun parseList(args: List<String>): Command {
@@ -395,16 +423,18 @@ class QutivexCli(
         if (args.size == 1 && args.first() in setOf("--help", "-h")) return Command.InstallHelp
         var frozen = false
         var offline = false
+        var verbose = false
         for (arg in args) {
             when {
                 arg in setOf("--help", "-h") -> return Command.InstallHelp
                 arg == "--frozen" -> frozen = true
                 arg == "--offline" -> offline = true
+                arg in setOf("--verbose", "-v") -> verbose = true
                 arg.startsWith('-') -> throw UsageException("Unknown option for 'install': $arg")
                 else -> throw UsageException("Unexpected argument for 'install': $arg")
             }
         }
-        return Command.Install(frozen, offline)
+        return Command.Install(frozen, offline, verbose)
     }
 
     private fun parseDoctor(args: List<String>): Command {
@@ -441,13 +471,13 @@ class QutivexCli(
         data object DoctorHelp : Command
         data object Version : Command
         data class Init(val directory: String) : Command
-        data class Run(val forwardArgs: List<String>) : Command
-        data object Test : Command
-        data object Build : Command
-        data class Add(val coordinate: DependencyCoordinate, val isTest: Boolean) : Command
-        data class Remove(val coordinateKey: String, val isTest: Boolean) : Command
+        data class Run(val forwardArgs: List<String>, val verbose: Boolean = false) : Command
+        data class Test(val verbose: Boolean = false) : Command
+        data class Build(val verbose: Boolean = false) : Command
+        data class Add(val coordinate: DependencyCoordinate, val isTest: Boolean, val verbose: Boolean = false) : Command
+        data class Remove(val coordinateKey: String, val isTest: Boolean, val verbose: Boolean = false) : Command
         data object ListDeps : Command
-        data class Install(val frozen: Boolean, val offline: Boolean) : Command
+        data class Install(val frozen: Boolean, val offline: Boolean, val verbose: Boolean = false) : Command
         data object Doctor : Command
     }
 
@@ -512,40 +542,44 @@ class QutivexCli(
         """.trimIndent()
 
         val RUN_HELP = """
-            Usage: qutivex run [-- <arguments...>]
+            Usage: qutivex run [-v|--verbose] [-- <arguments...>]
 
             Compile and run the project application entry point.
             Arguments after '--' are forwarded to the application.
 
             Options:
+              -v, --verbose     Show detailed Gradle execution logs
               -h, --help        Show this help
 
             Examples:
               qutivex run
+              qutivex run --verbose
               qutivex run -- --port 8080
               qutivex run -- arg1 arg2
         """.trimIndent()
 
         val TEST_HELP = """
-            Usage: qutivex test
+            Usage: qutivex test [-v|--verbose]
 
             Compile and run project tests.
 
             Options:
+              -v, --verbose     Show complete Gradle test output and tasks
               -h, --help        Show this help
         """.trimIndent()
 
         val BUILD_HELP = """
-            Usage: qutivex build
+            Usage: qutivex build [-v|--verbose]
 
             Compile and produce application distributions under build/.
 
             Options:
+              -v, --verbose     Show complete Gradle build output and tasks
               -h, --help        Show this help
         """.trimIndent()
 
         val ADD_HELP = """
-            Usage: qutivex add <coordinate> [--test]
+            Usage: qutivex add <coordinate> [-t|--test] [-v|--verbose]
                    qutivex add <coordinate> -t
 
             Add a Maven dependency to qutivex.toml and update qutivex.lock.
@@ -553,6 +587,7 @@ class QutivexCli(
 
             Options:
               -t, --test        Add to [test-dependencies] instead of [dependencies]
+              -v, --verbose     Show complete resolution output
               -h, --help        Show this help
 
             Examples:
@@ -562,7 +597,7 @@ class QutivexCli(
         """.trimIndent()
 
         val REMOVE_HELP = """
-            Usage: qutivex remove <coordinate> [--test]
+            Usage: qutivex remove <coordinate> [-t|--test] [-v|--verbose]
                    qutivex remove <coordinate> -t
 
             Remove a dependency from qutivex.toml and update qutivex.lock.
@@ -570,6 +605,7 @@ class QutivexCli(
 
             Options:
               -t, --test        Remove from [test-dependencies]
+              -v, --verbose     Show complete resolution output
               -h, --help        Show this help
 
             Examples:
@@ -587,19 +623,21 @@ class QutivexCli(
         """.trimIndent()
 
         val INSTALL_HELP = """
-            Usage: qutivex install [--frozen] [--offline]
+            Usage: qutivex install [--frozen] [--offline] [-v|--verbose]
 
             Resolve and download project dependencies, updating qutivex.lock.
 
             Options:
               --frozen          Require qutivex.lock to match qutivex.toml without modifying it (CI mode)
               --offline         Use cached dependencies without network queries
+              -v, --verbose     Show complete Gradle output
               -h, --help        Show this help
 
             Examples:
               qutivex install
               qutivex install --frozen
               qutivex install --offline
+              qutivex install --verbose
         """.trimIndent()
 
         val DOCTOR_HELP = """

@@ -1,5 +1,7 @@
 package dev.qutivex.engine.lockfile
 
+import dev.qutivex.core.dependency.DependencyGraph
+import dev.qutivex.core.dependency.ResolvedDependency
 import dev.qutivex.core.lockfile.LockfileSpec
 import dev.qutivex.core.manifest.ManifestSpec
 import org.tomlj.Toml
@@ -42,29 +44,71 @@ class LockfileManager {
         val kotlinVersion = toolchainTable?.getString(listOf("kotlin")) ?: "2.4.10"
         val jvmTarget = toolchainTable?.getLong(listOf("jvm"))?.toInt() ?: 21
 
-        val deps = mutableMapOf<String, String>()
-        val depsTable = result.getTable("dependencies")
-        if (depsTable != null) {
-            for (key in depsTable.keySet()) {
-                val keyPath = listOf(key)
-                if (depsTable.isString(keyPath)) {
-                    val value = depsTable.getString(keyPath)
-                    if (value != null) {
-                        deps[key] = value
+        val packages = mutableListOf<ResolvedDependency>()
+
+        if (result.contains(listOf("package"))) {
+            val pkgArray = result.getArray(listOf("package"))
+            if (pkgArray != null) {
+                for (i in 0 until pkgArray.size()) {
+                    val table = pkgArray.getTable(i)
+                    val group = table.getString(listOf("group")) ?: continue
+                    val artifact = table.getString(listOf("artifact")) ?: continue
+                    val pkgVersion = table.getString(listOf("version")) ?: continue
+                    val scope = table.getString(listOf("scope")) ?: "runtime"
+                    val direct = if (table.contains(listOf("direct"))) table.getBoolean(listOf("direct")) ?: true else true
+                    val checksum = if (table.contains(listOf("checksum"))) table.getString(listOf("checksum")) else null
+                    val repo = if (table.contains(listOf("repository"))) table.getString(listOf("repository")) ?: "https://repo.maven.apache.org/maven2/" else "https://repo.maven.apache.org/maven2/"
+
+                    val childDeps = mutableListOf<String>()
+                    val depsArr = table.getArray(listOf("dependencies"))
+                    if (depsArr != null) {
+                        for (d in 0 until depsArr.size()) {
+                            val depStr = depsArr.getString(d)
+                            if (!depStr.isNullOrBlank()) {
+                                childDeps.add(depStr)
+                            }
+                        }
+                    }
+
+                    packages.add(
+                        ResolvedDependency(
+                            group = group,
+                            artifact = artifact,
+                            version = pkgVersion,
+                            scope = scope,
+                            direct = direct,
+                            dependencies = childDeps,
+                            checksum = checksum,
+                            repository = repo,
+                        )
+                    )
+                }
+            }
+        } else {
+            // Backwards-compatibility for older key-value [dependencies] tables
+            val depsTable = result.getTable("dependencies")
+            if (depsTable != null) {
+                for (key in depsTable.keySet()) {
+                    val keyPath = listOf(key)
+                    if (depsTable.isString(keyPath)) {
+                        val ver = depsTable.getString(keyPath)
+                        if (ver != null && key.contains(':')) {
+                            val parts = key.split(':', limit = 2)
+                            packages.add(ResolvedDependency(parts[0], parts[1], ver, "runtime", direct = true))
+                        }
                     }
                 }
             }
-        }
-
-        val testDeps = mutableMapOf<String, String>()
-        val testDepsTable = result.getTable("test-dependencies")
-        if (testDepsTable != null) {
-            for (key in testDepsTable.keySet()) {
-                val keyPath = listOf(key)
-                if (testDepsTable.isString(keyPath)) {
-                    val value = testDepsTable.getString(keyPath)
-                    if (value != null) {
-                        testDeps[key] = value
+            val testDepsTable = result.getTable("test-dependencies")
+            if (testDepsTable != null) {
+                for (key in testDepsTable.keySet()) {
+                    val keyPath = listOf(key)
+                    if (testDepsTable.isString(keyPath)) {
+                        val ver = testDepsTable.getString(keyPath)
+                        if (ver != null && key.contains(':')) {
+                            val parts = key.split(':', limit = 2)
+                            packages.add(ResolvedDependency(parts[0], parts[1], ver, "test", direct = true))
+                        }
                     }
                 }
             }
@@ -75,20 +119,43 @@ class LockfileManager {
             manifestHash = manifestHash,
             kotlinVersion = kotlinVersion,
             jvmTarget = jvmTarget,
-            dependencies = deps,
-            testDependencies = testDeps,
+            packages = packages,
         )
     }
 
-    fun write(projectDir: Path, manifest: ManifestSpec): LockfileSpec {
+    fun write(
+        projectDir: Path,
+        manifest: ManifestSpec,
+        dependencyGraph: DependencyGraph? = null,
+    ): LockfileSpec {
         val lockfile = projectDir.resolve("qutivex.lock").toAbsolutePath().normalize()
+
+        val resolvedPackages = if (dependencyGraph != null && dependencyGraph.packages.isNotEmpty()) {
+            dependencyGraph.packages
+        } else {
+            // Fall back to direct packages if graph wasn't passed
+            val pkgs = mutableListOf<ResolvedDependency>()
+            for ((coord, ver) in manifest.dependencies) {
+                val parts = coord.split(':', limit = 2)
+                if (parts.size == 2) {
+                    pkgs.add(ResolvedDependency(parts[0], parts[1], ver, "runtime", direct = true))
+                }
+            }
+            for ((coord, ver) in manifest.testDependencies) {
+                val parts = coord.split(':', limit = 2)
+                if (parts.size == 2) {
+                    pkgs.add(ResolvedDependency(parts[0], parts[1], ver, "test", direct = true))
+                }
+            }
+            pkgs
+        }
+
         val spec = LockfileSpec(
             version = 1,
             manifestHash = manifest.computeHash(),
             kotlinVersion = manifest.toolchain.kotlin,
             jvmTarget = manifest.toolchain.jvm,
-            dependencies = manifest.dependencies,
-            testDependencies = manifest.testDependencies,
+            packages = resolvedPackages,
         )
 
         val parent = lockfile.parent ?: Path.of(".")
@@ -122,6 +189,16 @@ class LockfileManager {
                 "Lockfile is out of sync with qutivex.toml in frozen mode.\n" +
                 "Expected manifest hash: ${spec.manifestHash}\n" +
                 "Current manifest hash:  $currentHash\n" +
+                "Run 'qutivex install' without --frozen to reconcile dependencies."
+            )
+        }
+
+        // Verify declared direct dependencies match
+        val directRuntime = spec.dependencies
+        val directTest = spec.testDependencies
+        if (directRuntime != manifest.dependencies || directTest != manifest.testDependencies) {
+            throw LockfileException(
+                "Lockfile direct dependencies do not match qutivex.toml in frozen mode.\n" +
                 "Run 'qutivex install' without --frozen to reconcile dependencies."
             )
         }

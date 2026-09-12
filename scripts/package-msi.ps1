@@ -29,7 +29,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     if ($gradleProps -match 'version\s*=\s*(?:providers\.gradleProperty\("qutivexVersion"\)\.getOrElse\("([^"]+)"\)|"([^"]+)")') {
         $Version = if ($matches[1]) { $matches[1] } else { $matches[2] }
     } else {
-        $Version = "0.2.0-dev"
+        $Version = "0.2.1-dev"
     }
 }
 Write-Host "Project Version: $Version" -ForegroundColor Green

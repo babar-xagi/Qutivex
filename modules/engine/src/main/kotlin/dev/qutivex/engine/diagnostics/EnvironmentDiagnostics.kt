@@ -20,7 +20,26 @@ data class DiagnosticResult(
     val isHealthy: Boolean get() = javaOk
 }
 
-class EnvironmentDiagnostics {
+data class DiagnosticRow(val label: String, val value: String, val status: String)
+
+class DiagnosticTableFormatter {
+    fun format(rows: List<DiagnosticRow>): String {
+        val labelWidth = maxOf(12, (rows.maxOfOrNull { it.label.length } ?: 10) + 2)
+        val valueWidth = maxOf(19, (rows.maxOfOrNull { it.value.length } ?: 16) + 3)
+        return buildString {
+            for (row in rows) {
+                append(row.label.padEnd(labelWidth))
+                append(row.value.padEnd(valueWidth))
+                append(row.status)
+                append("\n")
+            }
+        }
+    }
+}
+
+class EnvironmentDiagnostics(
+    private val tableFormatter: DiagnosticTableFormatter = DiagnosticTableFormatter(),
+) {
     fun inspect(version: String): DiagnosticResult {
         val osName = System.getProperty("os.name") ?: "Unknown OS"
         val osArch = System.getProperty("os.arch") ?: "x64"
@@ -47,22 +66,43 @@ class EnvironmentDiagnostics {
 
     fun printReport(result: DiagnosticResult, stdout: PrintWriter, stderr: PrintWriter): Int {
         stdout.println("Qutivex Environment\n")
-        stdout.printf("%-12s%-12s%s%n", "Qutivex", result.qutivexVersion, "OK")
-        stdout.printf("%-12s%-12s%s%n", "Platform", result.platform, "OK")
+
+        val javaVal: String
+        val javaStatus: String
+        val javaHomeVal: String
+        val javaHomeStatus: String
 
         if (result.javaPath == null) {
-            stdout.printf("%-12s%-12s%s%n", "Java", "not found", "ERROR")
-            stdout.printf("%-12s%-12s%s%n", "JAVA_HOME", result.javaHome ?: "not set", "ERROR")
+            javaVal = "not found"
+            javaStatus = "ERROR"
+            javaHomeVal = result.javaHome ?: "not set"
+            javaHomeStatus = "ERROR"
         } else if (result.javaMajorVersion != 21) {
-            stdout.printf("%-12s%-12s%s%n", "Java", "${result.javaMajorVersion} (need 21)", "ERROR")
-            stdout.printf("%-12s%-12s%s%n", "JAVA_HOME", if (result.javaHome != null) "detected" else "from PATH", "WARNING")
+            javaVal = "${result.javaMajorVersion} (need 21)"
+            javaStatus = "ERROR"
+            javaHomeVal = if (result.javaHome != null) "detected" else "from PATH"
+            javaHomeStatus = "WARNING"
         } else {
-            stdout.printf("%-12s%-12s%s%n", "Java", result.javaVersion ?: "21", "OK")
-            stdout.printf("%-12s%-12s%s%n", "JAVA_HOME", if (result.javaHome != null) "detected" else "from PATH", "OK")
+            javaVal = result.javaVersion ?: "21"
+            javaStatus = "OK"
+            javaHomeVal = if (result.javaHome != null) "detected" else "from PATH"
+            javaHomeStatus = "OK"
         }
 
-        stdout.printf("%-12s%-12s%s%n", "Gradle", result.gradleStatus, "OK")
-        stdout.printf("%-12s%-12s%s%n", "Repository", if (result.repositoryReachable) "reachable" else "unreachable", if (result.repositoryReachable) "OK" else "WARNING")
+        val rows = listOf(
+            DiagnosticRow("Qutivex", result.qutivexVersion, "OK"),
+            DiagnosticRow("Platform", result.platform, "OK"),
+            DiagnosticRow("Java", javaVal, javaStatus),
+            DiagnosticRow("JAVA_HOME", javaHomeVal, javaHomeStatus),
+            DiagnosticRow("Gradle", result.gradleStatus, "OK"),
+            DiagnosticRow(
+                "Repository",
+                if (result.repositoryReachable) "reachable" else "unreachable",
+                if (result.repositoryReachable) "OK" else "WARNING",
+            ),
+        )
+
+        stdout.print(tableFormatter.format(rows))
         stdout.println()
 
         if (!result.javaOk) {

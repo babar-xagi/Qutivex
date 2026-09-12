@@ -55,6 +55,7 @@ class GradleBackendGenerator {
         return """
             import java.nio.charset.StandardCharsets
             import java.util.Base64
+            import java.security.MessageDigest
 
             plugins {
                 kotlin("jvm") version "${escapeKotlin(manifest.toolchain.kotlin)}"
@@ -112,6 +113,84 @@ class GradleBackendGenerator {
 
             dependencies {
             $dependenciesBlock}
+
+            tasks.register("qutivexResolve") {
+                doLast {
+                    val outputFile = file("resolved-dependencies.txt")
+                    val directRuntime = setOf<String>(
+                        ${manifest.dependencies.keys.joinToString(", ") { "\"${escapeKotlin(it)}\"" }}
+                    )
+                    val directTest = setOf<String>(
+                        ${manifest.testDependencies.keys.joinToString(", ") { "\"${escapeKotlin(it)}\"" }}
+                    )
+
+                    val lines = mutableListOf<String>()
+
+                    fun process(configName: String, scopeName: String, directSet: Set<String>) {
+                        val conf = configurations.findByName(configName) ?: return
+                        val resolutionResult = conf.incoming.resolutionResult
+                        val unresolved = resolutionResult.allDependencies
+                            .filterIsInstance<org.gradle.api.artifacts.result.UnresolvedDependencyResult>()
+                        if (unresolved.isNotEmpty()) {
+                            val causes = unresolved.joinToString("\n") { it.failure.message ?: "Could not resolve ${'$'}{it.attempted}" }
+                            throw org.gradle.api.GradleException(causes)
+                        }
+                        val rootComponent = resolutionResult.root
+
+                        val artifacts = try {
+                            conf.incoming.artifacts.artifacts.associateBy {
+                                val id = it.id.componentIdentifier
+                                if (id is org.gradle.api.artifacts.component.ModuleComponentIdentifier) {
+                                    "${'$'}{id.group}:${'$'}{id.module}:${'$'}{id.version}"
+                                } else ""
+                            }
+                        } catch (_: Exception) {
+                            emptyMap<String, org.gradle.api.artifacts.result.ResolvedArtifactResult>()
+                        }
+
+                        for (component in resolutionResult.allComponents) {
+                            if (component == rootComponent) continue
+                            val id = component.id
+                            if (id is org.gradle.api.artifacts.component.ModuleComponentIdentifier) {
+                                val group = id.group
+                                val module = id.module
+                                val version = id.version
+                                val coordKey = "${'$'}group:${'$'}module"
+                                val fullCoord = "${'$'}group:${'$'}module:${'$'}version"
+                                val isDirect = coordKey in directSet
+
+                                val childDeps = component.dependencies
+                                    .filterIsInstance<org.gradle.api.artifacts.result.ResolvedDependencyResult>()
+                                    .mapNotNull { dep ->
+                                        val sel = dep.selected.id
+                                        if (sel is org.gradle.api.artifacts.component.ModuleComponentIdentifier) {
+                                            "${'$'}{sel.group}:${'$'}{sel.module}"
+                                        } else null
+                                    }
+
+                                var checksum = ""
+                                val artifact = artifacts[fullCoord]
+                                if (artifact != null && artifact.file.exists()) {
+                                    try {
+                                        val md = MessageDigest.getInstance("SHA-256")
+                                        val bytes = artifact.file.readBytes()
+                                        val digest = md.digest(bytes)
+                                        checksum = "sha256:" + digest.joinToString("") { "%02x".format(it) }
+                                    } catch (_: Exception) {}
+                                }
+
+                                val depsStr = childDeps.distinct().sorted().joinToString(",")
+                                lines.add("${'$'}group\t${'$'}module\t${'$'}version\t${'$'}scopeName\t${'$'}isDirect\t${'$'}checksum\thttps://repo.maven.apache.org/maven2/\t${'$'}depsStr")
+                            }
+                        }
+                    }
+
+                    process("runtimeClasspath", "runtime", directRuntime)
+                    process("testRuntimeClasspath", "test", directTest)
+
+                    outputFile.writeText(lines.joinToString("\n") + "\n")
+                }
+            }
         """.trimIndent() + "\n"
     }
 

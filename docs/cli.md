@@ -9,13 +9,13 @@ Qutivex provides a modern, high-speed CLI for Kotlin/JVM projects, combining pro
 | Command | Syntax | Description |
 | :--- | :--- | :--- |
 | `init` | `qutivex init [directory]` | Initialize a new project in the specified or current directory |
-| `run` | `qutivex run [-- arguments...]` | Compile and run the project entry point, forwarding trailing arguments |
-| `test` | `qutivex test` | Compile and execute unit & integration tests |
-| `build` | `qutivex build` | Compile and produce release distributions under `build/distributions/` |
-| `add` | `qutivex add <coordinate> [-t\|--test]` | Add a dependency to `qutivex.toml` and sync `qutivex.lock` |
-| `remove` | `qutivex remove <coordinate> [-t\|--test]` | Remove a dependency from `qutivex.toml` and update `qutivex.lock` |
+| `run` | `qutivex run [--verbose] [-- arguments...]` | Compile and run the project entry point, forwarding trailing arguments |
+| `test` | `qutivex test [--verbose]` | Compile and execute unit & integration tests |
+| `build` | `qutivex build [--verbose]` | Compile and produce release distributions under `build/distributions/` |
+| `add` | `qutivex add <coordinate> [-t\|--test] [--verbose]` | Add a dependency to `qutivex.toml` and sync `qutivex.lock` |
+| `remove` | `qutivex remove <coordinate> [-t\|--test] [--verbose]` | Remove a dependency from `qutivex.toml` and update `qutivex.lock` |
 | `list` | `qutivex list` | Display all project dependencies and test dependencies |
-| `install` | `qutivex install [--frozen] [--offline]` | Download and resolve dependencies; reconcile `qutivex.lock` |
+| `install` | `qutivex install [--frozen] [--offline] [--verbose]` | Download and resolve dependencies; reconcile `qutivex.lock` |
 | `doctor` | `qutivex doctor` | Inspect environment, Java 21 runtime, and Maven Central connectivity |
 | `help` | `qutivex --help`, `qutivex <cmd> --help` | Display general help or command-specific options |
 | `version` | `qutivex --version`, `qutivex -V` | Print current Qutivex version |
@@ -50,16 +50,18 @@ cd my-service
 Compiles and executes the application entry point specified in `qutivex.toml` (`application.main-class`).
 
 ```text
-Usage: qutivex run [-- <arguments...>]
+Usage: qutivex run [--verbose] [-- <arguments...>]
 ```
 
 - Any arguments after `--` are passed verbatim to the application's `main(args: Array<String>)` function.
+- Suppresses internal build noise by default; pass `--verbose` to inspect full compilation details.
 - Leverages Gradle daemon reuse and local build caching for sub-second re-executions.
-- Displays total elapsed execution time (`✨ Finished in 1.25s`).
+- Displays total elapsed execution time (`⏱️ Finished in 1.25s`).
 
 **Examples:**
 ```powershell
 qutivex run
+qutivex run --verbose
 qutivex run -- --port 8080 --profile dev
 ```
 
@@ -70,16 +72,18 @@ qutivex run -- --port 8080 --profile dev
 Compiles test sources and runs the test suite using JUnit Platform.
 
 ```text
-Usage: qutivex test
+Usage: qutivex test [--verbose]
 ```
 
-- Logs test outcomes (`PASSED`, `SKIPPED`, `FAILED`).
-- Reports total test elapsed duration (`🧪 Tests passed in 850ms`).
-- Returns exit code `0` on success, `1` if any test fails.
+- Clean output by default displaying test results (`PASSED`, `SKIPPED`, `FAILED`).
+- Pass `--verbose` to print raw Gradle execution lifecycle.
+- Reports total test elapsed duration (`✅ Tests passed in 850ms`).
+- Returns exit code `0` on success, `1` if any test fails (diagnostics automatically printed to stderr).
 
 **Example:**
 ```powershell
 qutivex test
+qutivex test --verbose
 ```
 
 ---
@@ -89,15 +93,17 @@ qutivex test
 Produces release application distributions.
 
 ```text
-Usage: qutivex build
+Usage: qutivex build [--verbose]
 ```
 
+- Clean emoji output by default (`📦 Building...`, `✅ Build completed in 1.10s`).
+- Pass `--verbose` to display full Gradle task graph and compiler outputs.
 - Generates standalone distribution ZIP and TAR archives in `build/distributions/`.
-- Reports duration (`📦 Build completed in 1.10s`).
 
 **Example:**
 ```powershell
 qutivex build
+qutivex build --verbose
 ```
 
 ---
@@ -107,13 +113,14 @@ qutivex build
 Adds a Maven dependency to `qutivex.toml` and updates `qutivex.lock`.
 
 ```text
-Usage: qutivex add <coordinate> [--test]
-       qutivex add <coordinate> -t
+Usage: qutivex add <coordinate> [--test] [--verbose]
+       qutivex add <coordinate> -t [--verbose]
 ```
 
 - Supports standard colon syntax: `group:artifact:version`
 - Supports npm-style `@` syntax: `group:artifact@version`
 - `--test` / `-t`: Adds the dependency to `[test-dependencies]` instead of `[dependencies]`.
+- `--verbose`: Prints detailed resolution output and network queries.
 - **Atomic Safety**: Verifies that the dependency can be resolved against Maven Central before persisting. If resolution fails, changes are automatically rolled back.
 
 **Examples:**
@@ -121,6 +128,7 @@ Usage: qutivex add <coordinate> [--test]
 qutivex add org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2
 qutivex add io.ktor:ktor-client-core@3.0.0
 qutivex add org.junit.jupiter:junit-jupiter:5.10.2 --test
+qutivex add io.ktor:ktor-server-core:3.0.0 --verbose
 ```
 
 ---
@@ -130,12 +138,13 @@ qutivex add org.junit.jupiter:junit-jupiter:5.10.2 --test
 Removes a dependency from `qutivex.toml` and regenerates `qutivex.lock`.
 
 ```text
-Usage: qutivex remove <coordinate> [--test]
-       qutivex remove <coordinate> -t
+Usage: qutivex remove <coordinate> [--test] [--verbose]
+       qutivex remove <coordinate> -t [--verbose]
 ```
 
 - Accepts `group:artifact` or `group:artifact:version`.
 - `--test` / `-t`: Specifically removes from `[test-dependencies]`.
+- `--verbose`: Displays detailed graph reconciliation during removal.
 
 **Examples:**
 ```powershell
@@ -174,17 +183,19 @@ Usage: qutivex list
 Downloads and reconciles project dependencies with `qutivex.lock`.
 
 ```text
-Usage: qutivex install [--frozen] [--offline]
+Usage: qutivex install [--frozen] [--offline] [--verbose]
 ```
 
 - `--frozen`: Enforces strict lockfile compliance (ideal for CI/CD pipelines). If `qutivex.lock` is missing or its `manifest-hash` does not match `qutivex.toml`, the command fails with an actionable error.
 - `--offline`: Resolves dependencies exclusively using the local cache without network queries.
+- `--verbose`: Emits detailed Gradle task and dependency resolution information.
 
 **Examples:**
 ```powershell
 qutivex install
 qutivex install --frozen
 qutivex install --offline
+qutivex install --verbose
 ```
 
 ---

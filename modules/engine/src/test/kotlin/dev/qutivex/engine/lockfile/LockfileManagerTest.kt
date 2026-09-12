@@ -1,5 +1,7 @@
 package dev.qutivex.engine.lockfile
 
+import dev.qutivex.core.dependency.DependencyGraph
+import dev.qutivex.core.dependency.ResolvedDependency
 import dev.qutivex.core.manifest.ManifestApplication
 import dev.qutivex.core.manifest.ManifestProject
 import dev.qutivex.core.manifest.ManifestSpec
@@ -11,6 +13,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -39,10 +42,44 @@ class LockfileManagerTest {
     @Test
     fun `write creates lockfile and read retrieves matching spec`() {
         val manifest = sampleManifest()
-        val written = manager.write(tempDir, manifest)
+        val graph = DependencyGraph(
+            rootProjectName = "sample-app",
+            packages = listOf(
+                ResolvedDependency(
+                    group = "org.jetbrains.kotlinx",
+                    artifact = "kotlinx-coroutines-core",
+                    version = "1.8.0",
+                    scope = "runtime",
+                    direct = true,
+                    dependencies = listOf("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm"),
+                    checksum = "sha256:abc123",
+                ),
+                ResolvedDependency(
+                    group = "org.jetbrains.kotlinx",
+                    artifact = "kotlinx-coroutines-core-jvm",
+                    version = "1.8.0",
+                    scope = "runtime",
+                    direct = false,
+                    dependencies = listOf("org.jetbrains.kotlin:kotlin-stdlib"),
+                    checksum = "sha256:def456",
+                ),
+                ResolvedDependency(
+                    group = "org.junit.jupiter",
+                    artifact = "junit-jupiter",
+                    version = "5.10.2",
+                    scope = "test",
+                    direct = true,
+                ),
+            ),
+        )
+
+        val written = manager.write(tempDir, manifest, graph)
 
         val lockfilePath = tempDir.resolve("qutivex.lock")
         assertTrue(Files.isRegularFile(lockfilePath))
+        val lockContent = Files.readString(lockfilePath)
+        assertTrue(lockContent.contains("[[package]]"))
+        assertTrue(lockContent.contains("kotlinx-coroutines-core-jvm"))
 
         val read = manager.read(tempDir)
         assertNotNull(read)
@@ -50,8 +87,14 @@ class LockfileManagerTest {
         assertEquals(written.manifestHash, read.manifestHash)
         assertEquals(written.kotlinVersion, read.kotlinVersion)
         assertEquals(written.jvmTarget, read.jvmTarget)
-        assertEquals(written.dependencies, read.dependencies)
-        assertEquals(written.testDependencies, read.testDependencies)
+        assertEquals(3, read.packages.size)
+
+        val coroutines = read.packages.first { it.artifact == "kotlinx-coroutines-core" }
+        assertTrue(coroutines.direct)
+        assertEquals("sha256:abc123", coroutines.checksum)
+
+        val jvm = read.packages.first { it.artifact == "kotlinx-coroutines-core-jvm" }
+        assertFalse(jvm.direct)
     }
 
     @Test

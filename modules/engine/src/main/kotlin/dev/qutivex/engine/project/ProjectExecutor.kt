@@ -7,6 +7,7 @@ import dev.qutivex.engine.backend.gradle.GradleProcessRunner
 import dev.qutivex.engine.manifest.ManifestParser
 import java.io.InputStream
 import java.io.PrintWriter
+import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -22,6 +23,7 @@ class ProjectExecutor(
         stdout: PrintWriter,
         stderr: PrintWriter,
         stdin: InputStream? = null,
+        verbose: Boolean = false,
     ): Int {
         val manifest = prepare(projectDir)
         val argsFile = projectDir.resolve(".qutivex/gradle/application-args.txt")
@@ -33,7 +35,11 @@ class ProjectExecutor(
         } else {
             Files.deleteIfExists(argsFile)
         }
-        val extraArgs = listOf("--quiet", "--build-cache")
+        val extraArgs = if (verbose) {
+            listOf("--console=plain", "--build-cache")
+        } else {
+            listOf("--quiet", "--build-cache")
+        }
         return processRunner.execute(
             projectDir = projectDir,
             tasks = listOf("run"),
@@ -48,30 +54,99 @@ class ProjectExecutor(
         projectDir: Path,
         stdout: PrintWriter,
         stderr: PrintWriter,
+        verbose: Boolean = false,
     ): Int {
         prepare(projectDir)
-        return processRunner.execute(
+        val extraArgs = listOf("--console=plain", "--build-cache")
+        if (verbose) {
+            return processRunner.execute(
+                projectDir = projectDir,
+                tasks = listOf("test"),
+                extraArgs = extraArgs,
+                stdout = stdout,
+                stderr = stderr,
+            )
+        }
+
+        val outCapture = StringWriter()
+        val errCapture = StringWriter()
+        val exitCode = processRunner.execute(
             projectDir = projectDir,
             tasks = listOf("test"),
-            extraArgs = listOf("--console=plain", "--build-cache"),
-            stdout = stdout,
-            stderr = stderr,
+            extraArgs = extraArgs,
+            stdout = PrintWriter(outCapture),
+            stderr = PrintWriter(errCapture),
         )
+
+        val outLines = outCapture.toString().lines()
+        outLines.forEach { line ->
+            val trimmed = line.trim()
+            if (isTestEventLine(trimmed)) {
+                stdout.println(line)
+            }
+        }
+
+        if (exitCode != 0) {
+            val errContent = errCapture.toString().trim()
+            if (errContent.isNotBlank()) {
+                stderr.println(errContent)
+            } else {
+                val failLines = outLines.filter {
+                    it.contains("FAILED") || it.contains("FAILURE") || it.contains("Error")
+                }
+                if (failLines.isNotEmpty()) {
+                    failLines.forEach { stderr.println(it) }
+                }
+            }
+        }
+
+        return exitCode
     }
 
     fun build(
         projectDir: Path,
         stdout: PrintWriter,
         stderr: PrintWriter,
+        verbose: Boolean = false,
     ): Int {
         prepare(projectDir)
-        return processRunner.execute(
+        val extraArgs = listOf("--console=plain", "--build-cache")
+        if (verbose) {
+            return processRunner.execute(
+                projectDir = projectDir,
+                tasks = listOf("build"),
+                extraArgs = extraArgs,
+                stdout = stdout,
+                stderr = stderr,
+            )
+        }
+
+        val outCapture = StringWriter()
+        val errCapture = StringWriter()
+        val exitCode = processRunner.execute(
             projectDir = projectDir,
             tasks = listOf("build"),
-            extraArgs = listOf("--console=plain", "--build-cache"),
-            stdout = stdout,
-            stderr = stderr,
+            extraArgs = extraArgs,
+            stdout = PrintWriter(outCapture),
+            stderr = PrintWriter(errCapture),
         )
+
+        if (exitCode != 0) {
+            val errContent = errCapture.toString().trim()
+            val outContent = outCapture.toString().trim()
+            val diagnostic = errContent.ifBlank { outContent }
+            if (diagnostic.isNotBlank()) {
+                stderr.println(diagnostic)
+            }
+        }
+
+        return exitCode
+    }
+
+    private fun isTestEventLine(line: String): Boolean {
+        if (line.isBlank()) return false
+        if (line.startsWith("> Task") || line.startsWith("BUILD ") || line.startsWith("Consider enabling")) return false
+        return line.contains("PASSED") || line.contains("FAILED") || line.contains("SKIPPED") || line.contains("SUCCESS")
     }
 
     private fun prepare(projectDir: Path): ManifestSpec {

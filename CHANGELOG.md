@@ -7,41 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1] - 2026-09-12
+
+### Fixed
+- **Windows Console Emoji / UTF-8 Encoding**:
+  - Injected `@chcp 65001 >nul 2>&1` into `qutivex.bat` and configured explicit UTF-8 `StandardCharsets.UTF_8` wrappers in `Main.kt`.
+  - Completely resolved mojibake (`Γ£¿`, `≡ƒôª`, `ΓÅ▒∩╕Å`) in Windows PowerShell, CMD, Windows Terminal, and POSIX terminals.
+- **`qutivex doctor` Column Alignment**:
+  - Replaced hardcoded format string width with dynamic padding in `DiagnosticTableFormatter` to prevent platform string overflow (`Platform Windows 10 amd64OK` -> `Platform    Windows 10 amd64   OK`).
+- **Gradle Output Suppression & Clean CLI**:
+  - Build/test/run/install commands hide internal Gradle lifecycle noise by default and show clean emoji feedback.
+  - Added `--verbose` flag across `build`, `test`, `run`, `install`, `add`, and `remove` to expose underlying build tasks when needed.
+  - Compiler errors and test failures surface actionable diagnostic errors in standard output streams.
+- **Comprehensive Transitive Lockfile (`qutivex.lock`)**:
+  - Versioned TOML lockfile specification (`version = 1`) with deterministic ordering.
+  - Stores the complete resolved dependency graph via `[[package]]` entries: `group`, `artifact`, `version`, `scope`, `direct`, `dependencies`, `checksum` (SHA-256), and `repository`.
+- **Domain Dependency Abstractions**:
+  - Clean separation of resolution interfaces: `DependencyResolver`, `RepositoryClient`, `ArtifactCache`, `ResolvedDependency`, `DependencyGraph`.
+- **Fast Dependency Resolution**:
+  - Replaced slow compilation checks during `add` with lightweight `qutivexResolve` task that analyzes configuration graphs directly without executing the Kotlin compilation daemon, dropping resolution time from ~18s to ~2s.
+
+---
+
 ## [0.2.0] - 2026-09-12
 
 ### Added
 - **Dependency Management Lifecycle (Phase 2)**:
-  - `qutivex add <coordinate> [--test|-t]`:
-    - Add runtime or test dependencies using standard `group:artifact:version` or npm-style `group:artifact@version` syntax.
-    - Automatically stages changes, validates resolution against Maven Central, and rolls back atomically on failure.
-  - `qutivex remove <coordinate> [--test|-t]`:
-    - Safely remove dependencies from `qutivex.toml` and synchronize the lockfile.
-  - `qutivex list`:
-    - Display all declared runtime and test dependencies in a structured, scoped view.
-  - `qutivex install [--frozen] [--offline]`:
-    - Synchronize and download dependencies.
-    - Support for `--frozen` (strict CI mode: ensures `qutivex.lock` matches `qutivex.toml` without modifying either).
-    - Support for `--offline` (uses cached local dependencies without attempting network queries).
-  - **Deterministic Lockfile (`qutivex.lock`)**:
-    - Versioned TOML lockfile specification (`version = 1`).
-    - Tracks SHA-256 manifest integrity hash (`manifest-hash`), pinned toolchains (`kotlin`, `jvm`), and sorted dependencies.
+  - `qutivex add <coordinate> [--test|-t]`: Add runtime or test dependencies using `group:artifact:version` or `group:artifact@version`.
+  - `qutivex remove <coordinate> [--test|-t]`: Safely remove dependencies and synchronize lockfile.
+  - `qutivex list`: Display declared runtime and test dependencies in a structured, scoped view.
+  - `qutivex install [--frozen] [--offline]`: Synchronize and download dependencies with `--frozen` CI validation.
+  - Initial lockfile implementation and rollback safety.
 - **Execution Performance & Timing**:
   - Elapsed execution time reporting on all operations (`✨ Finished in 1.42s`, `⏱️ (took 120ms)`).
-  - Human-friendly duration formatting supporting milliseconds, seconds, and minutes.
 - **Terminal Aesthetics & Emojis**:
   - Expressive CLI feedback: `✨`, `⏱️`, `📦`, `🧪`, `➕`, `➖`, `📋`, `📥`, `🔍`.
-
-### Changed
-- **Massive Performance Optimizations**:
-  - Re-copying of Gradle wrapper binaries (`gradlew`, `gradlew.bat`, `gradle-wrapper.jar`) is now skipped if the files already exist.
-  - Configured `gradle.properties` for maximum throughput:
-    - `org.gradle.daemon=true` (keeps compilation daemon alive between commands)
-    - `org.gradle.parallel=true` (concurrent task execution)
-    - `org.gradle.caching=true` (reusable task build cache)
-    - `org.gradle.vfs.watch=true` (virtual file system watching for sub-second change detection)
-  - Added `--build-cache` to `run`, `test`, `build`, and `install` commands, reducing warm run times from ~24s down to ~1.5s–2s.
-- **Help Documentation**:
-  - Enhanced all command help screens (`--help`) with clear options, parameter constraints, and real-world examples.
 
 ---
 

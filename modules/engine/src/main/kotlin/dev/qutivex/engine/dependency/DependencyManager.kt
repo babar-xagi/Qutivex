@@ -17,6 +17,7 @@ class DependencyException(message: String, cause: Throwable? = null) : RuntimeEx
 
 /**
  * Handles adding, removing, listing, and installing project dependencies.
+ * Uses DependencyResolver for dependency graph discovery.
  */
 class DependencyManager(
     private val manifestParser: ManifestParser = ManifestParser(),
@@ -24,11 +25,13 @@ class DependencyManager(
     private val lockfileManager: LockfileManager = LockfileManager(),
     private val backendGenerator: GradleBackendGenerator = GradleBackendGenerator(),
     private val processRunner: BackendProcessRunner = GradleProcessRunner(),
+    private val dependencyResolver: DependencyResolver = GradleDependencyResolver(backendGenerator, processRunner),
 ) {
     fun add(
         projectDir: Path,
         coordinate: DependencyCoordinate,
         isTest: Boolean = false,
+        verbose: Boolean = false,
         stdout: PrintWriter,
         stderr: PrintWriter,
     ): ManifestSpec {
@@ -53,34 +56,25 @@ class DependencyManager(
         // 1. Stage updated manifest to disk
         manifestWriter.write(manifestFile, updatedManifest)
 
-        // 2. Generate backend
-        backendGenerator.generate(projectDir, updatedManifest)
-
-        // 3. Verify dependency resolution via backend
-        val resolutionOutput = StringWriter()
-        val resolutionError = StringWriter()
-        val verifyTask = if (isTest) listOf("compileTestKotlin") else listOf("compileKotlin")
-        val exitCode = processRunner.execute(
-            projectDir = projectDir,
-            tasks = verifyTask,
-            extraArgs = listOf("--quiet", "--build-cache"),
-            stdout = PrintWriter(resolutionOutput),
-            stderr = PrintWriter(resolutionError),
-        )
-
-        if (exitCode != 0) {
+        // 2. Resolve dependency graph via resolver (validates without compiling)
+        val graph = try {
+            dependencyResolver.resolve(
+                projectDir = projectDir,
+                manifest = updatedManifest,
+                offline = false,
+                verbose = verbose,
+            )
+        } catch (e: Exception) {
             // Roll back to previous manifest on failure
             manifestWriter.write(manifestFile, currentManifest)
             backendGenerator.generate(projectDir, currentManifest)
-            val errMessage = resolutionError.toString().trim().ifEmpty { resolutionOutput.toString().trim() }
             throw DependencyException(
-                "Failed to resolve dependency '${coordinate.standardNotation}'. Rolled back changes.\n" +
-                errMessage.lineSequence().filter { it.isNotBlank() }.take(5).joinToString("\n")
+                "Failed to resolve dependency '${coordinate.standardNotation}'. Rolled back changes.\n${e.message ?: ""}".trim()
             )
         }
 
-        // 4. Update lockfile after successful resolution
-        lockfileManager.write(projectDir, updatedManifest)
+        // 3. Update lockfile with full resolved graph
+        lockfileManager.write(projectDir, updatedManifest, graph)
 
         return updatedManifest
     }
@@ -89,6 +83,7 @@ class DependencyManager(
         projectDir: Path,
         coordinateKey: String,
         isTest: Boolean = false,
+        verbose: Boolean = false,
     ): ManifestSpec {
         val manifestFile = projectDir.resolve("qutivex.toml")
         if (!Files.exists(manifestFile)) {
@@ -111,7 +106,6 @@ class DependencyManager(
             currentManifest.withoutTestDependency(normalizedKey)
         } else {
             if (!inRuntime && inTest) {
-                // If user didn't specify --test but it's in test-dependencies, remove from test
                 currentManifest.withoutTestDependency(normalizedKey)
             } else {
                 currentManifest.withoutDependency(normalizedKey)
@@ -120,7 +114,14 @@ class DependencyManager(
 
         manifestWriter.write(manifestFile, updatedManifest)
         backendGenerator.generate(projectDir, updatedManifest)
-        lockfileManager.write(projectDir, updatedManifest)
+
+        // Resolve remaining dependencies and update lockfile
+        val graph = try {
+            dependencyResolver.resolve(projectDir, updatedManifest, offline = false, verbose = verbose)
+        } catch (_: Exception) {
+            null
+        }
+        lockfileManager.write(projectDir, updatedManifest, graph)
 
         return updatedManifest
     }
@@ -137,6 +138,7 @@ class DependencyManager(
         projectDir: Path,
         frozen: Boolean = false,
         offline: Boolean = false,
+        verbose: Boolean = false,
         stdout: PrintWriter,
         stderr: PrintWriter,
     ): Int {
@@ -150,6 +152,14 @@ class DependencyManager(
             lockfileManager.verifyFrozen(projectDir, manifest)
         }
 
+        val graph = if (!frozen) {
+            val resolved = dependencyResolver.resolve(projectDir, manifest, offline = offline, verbose = verbose)
+            lockfileManager.write(projectDir, manifest, resolved)
+            resolved
+        } else {
+            null
+        }
+
         backendGenerator.generate(projectDir, manifest)
 
         val extraArgs = mutableListOf("--console=plain", "--build-cache")
@@ -157,16 +167,23 @@ class DependencyManager(
             extraArgs.add("--offline")
         }
 
+        val outWriter = if (verbose) stdout else PrintWriter(StringWriter())
+        val errCapture = StringWriter()
+        val errWriter = if (verbose) stderr else PrintWriter(errCapture)
+
         val exitCode = processRunner.execute(
             projectDir = projectDir,
             tasks = listOf("classes", "testClasses"),
             extraArgs = extraArgs,
-            stdout = stdout,
-            stderr = stderr,
+            stdout = outWriter,
+            stderr = errWriter,
         )
 
-        if (exitCode == 0 && !frozen) {
-            lockfileManager.write(projectDir, manifest)
+        if (exitCode != 0 && !verbose) {
+            val errText = errCapture.toString().trim()
+            if (errText.isNotBlank()) {
+                stderr.println(errText)
+            }
         }
 
         return exitCode

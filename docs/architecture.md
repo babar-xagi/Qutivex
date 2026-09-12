@@ -25,17 +25,25 @@ Qutivex follows a strict three-module architectural design:
 
 ## Dependency Management & Lockfile Architecture (Phase 2)
 
-### 1. Dependency Resolution & Atomic Staging
+### 1. Domain Abstractions & Clean Separation
+Dependency operations are decoupled into clean domain models and pluggable resolution providers:
+- `DependencyResolver`: Contract for resolving project dependencies without coupling callers to Gradle APIs.
+- `RepositoryClient`: Abstraction for querying remote package registries (e.g. Maven Central).
+- `ArtifactCache`: Abstraction for local caching of resolved artifacts and metadata.
+- `ResolvedDependency`: Pure model for a resolved component (`group`, `artifact`, `version`, `scope`, `direct`, `dependencies`, `checksum`, `repository`).
+- `DependencyGraph`: Full directed dependency graph representing all direct and transitive packages.
+
+### 2. Dependency Resolution & Atomic Staging
 When `qutivex add` is executed:
 1. The requested coordinate (`group:artifact:version` or `group:artifact@version`) is parsed and validated via `DependencyCoordinate`.
 2. A new in-memory `ManifestSpec` is created.
-3. The candidate manifest is written to `qutivex.toml`.
-4. The disposable Gradle backend under `.qutivex/gradle/` is regenerated.
-5. A lightweight compilation task (`compileKotlin` or `compileTestKotlin`) is executed via `BackendProcessRunner`.
-6. **Automatic Rollback**: If compilation or resolution fails, `ManifestWriter` immediately restores the previous valid `qutivex.toml` and regenerates the backend, leaving no corrupted files behind.
-7. **Lockfile Generation**: Upon successful resolution, `LockfileManager` writes `qutivex.lock` with a SHA-256 integrity hash of `qutivex.toml`.
+3. The candidate manifest is staged to `qutivex.toml`.
+4. The disposable backend under `.qutivex/gradle/` is generated.
+5. The `DependencyResolver` (`GradleDependencyResolver`) executes `qutivexResolve`—a lightweight task that evaluates configuration resolution graphs directly without executing Kotlin source compilation daemon.
+6. **Automatic Rollback**: If resolution fails (e.g., nonexistent coordinate or network error), `DependencyManager` immediately restores the previous valid `qutivex.toml` and regenerates the backend, leaving zero corrupted files.
+7. **Lockfile Generation**: Upon successful resolution, `LockfileManager` writes `qutivex.lock` with deterministic package ordering and SHA-256 manifest integrity hash.
 
-### 2. Lockfile Specification (`qutivex.lock`)
+### 3. Comprehensive Lockfile Specification (`qutivex.lock`)
 ```toml
 # Qutivex lockfile (version = 1) - generated automatically, do not edit manually
 version = 1
@@ -45,13 +53,28 @@ manifest-hash = "c18f0a359..."
 kotlin = "2.4.10"
 jvm = 21
 
-[dependencies]
-"org.jetbrains.kotlinx:kotlinx-coroutines-core" = "1.10.2"
+[[package]]
+group = "org.jetbrains.kotlinx"
+artifact = "kotlinx-coroutines-core"
+version = "1.10.2"
+scope = "runtime"
+direct = true
+dependencies = ["org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm"]
+checksum = "sha256:..."
+repository = "https://repo.maven.apache.org/maven2/"
 
-[test-dependencies]
-"org.junit.jupiter:junit-jupiter" = "5.10.2"
+[[package]]
+group = "org.jetbrains.kotlinx"
+artifact = "kotlinx-coroutines-core-jvm"
+version = "1.10.2"
+scope = "runtime"
+direct = false
+dependencies = ["org.jetbrains.kotlin:kotlin-stdlib"]
+checksum = "sha256:..."
+repository = "https://repo.maven.apache.org/maven2/"
 ```
 
+- **Transitive Coverage**: Every direct and transitive package is locked with its exact version, scope, direct flag, upstream dependencies, and repository.
 - **Manifest Integrity Hash**: Calculated via SHA-256 over normalized manifest TOML content.
 - **Frozen Validation (`--frozen`)**: Ensures `qutivex.lock` exists and that its `manifest-hash` precisely matches `qutivex.toml`. Any drift triggers an immediate exit with remediation guidance.
 

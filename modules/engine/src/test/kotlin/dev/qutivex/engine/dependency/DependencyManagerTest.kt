@@ -17,6 +17,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.InputStream
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -36,12 +37,17 @@ class DependencyManagerTest {
     @BeforeEach
     fun setUp() {
         mockRunner = MockProcessRunner()
+        val resolver = GradleDependencyResolver(
+            backendGenerator = backendGenerator,
+            processRunner = mockRunner,
+        )
         dependencyManager = DependencyManager(
             manifestParser = ManifestParser(),
             manifestWriter = manifestWriter,
             lockfileManager = lockfileManager,
             backendGenerator = backendGenerator,
             processRunner = mockRunner,
+            dependencyResolver = resolver,
         )
 
         // Seed initial project manifest
@@ -62,10 +68,10 @@ class DependencyManagerTest {
         val err = StringWriter()
 
         val coord = DependencyCoordinate.parse("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
-        val manifest = dependencyManager.add(tempDir, coord, false, PrintWriter(out), PrintWriter(err))
+        val manifest = dependencyManager.add(tempDir, coord, false, false, PrintWriter(out), PrintWriter(err))
 
         assertEquals("1.8.0", manifest.dependencies["org.jetbrains.kotlinx:kotlinx-coroutines-core"])
-        assertEquals(listOf("compileKotlin"), mockRunner.lastTasks)
+        assertEquals(listOf("qutivexResolve"), mockRunner.lastTasks)
         assertTrue(mockRunner.lastExtraArgs.contains("--build-cache"))
 
         // Check lockfile
@@ -80,10 +86,10 @@ class DependencyManagerTest {
         val err = StringWriter()
 
         val coord = DependencyCoordinate.parse("org.junit.jupiter:junit-jupiter:5.10.2")
-        val manifest = dependencyManager.add(tempDir, coord, true, PrintWriter(out), PrintWriter(err))
+        val manifest = dependencyManager.add(tempDir, coord, true, false, PrintWriter(out), PrintWriter(err))
 
         assertEquals("5.10.2", manifest.testDependencies["org.junit.jupiter:junit-jupiter"])
-        assertEquals(listOf("compileTestKotlin"), mockRunner.lastTasks)
+        assertEquals(listOf("qutivexResolve"), mockRunner.lastTasks)
 
         val lock = lockfileManager.read(tempDir)
         assertEquals("5.10.2", lock?.testDependencies?.get("org.junit.jupiter:junit-jupiter"))
@@ -97,10 +103,10 @@ class DependencyManagerTest {
 
         val coord = DependencyCoordinate.parse("nonexistent:pkg:99.99")
         val ex = assertThrows<DependencyException> {
-            dependencyManager.add(tempDir, coord, false, PrintWriter(out), PrintWriter(err))
+            dependencyManager.add(tempDir, coord, false, false, PrintWriter(out), PrintWriter(err))
         }
 
-        assertTrue(ex.message?.contains("Failed to resolve dependency") == true)
+        assertTrue(ex.message?.contains("Failed to resolve") == true)
 
         // Manifest must NOT have nonexistent dependency after rollback
         val currentManifest = dependencyManager.list(tempDir)
@@ -141,7 +147,14 @@ class DependencyManagerTest {
         val out = StringWriter()
         val err = StringWriter()
 
-        val exitCode = dependencyManager.install(tempDir, frozen = false, offline = true, stdout = PrintWriter(out), stderr = PrintWriter(err))
+        val exitCode = dependencyManager.install(
+            tempDir,
+            frozen = false,
+            offline = true,
+            verbose = false,
+            stdout = PrintWriter(out),
+            stderr = PrintWriter(err),
+        )
         assertEquals(0, exitCode)
         assertEquals(listOf("classes", "testClasses"), mockRunner.lastTasks)
         assertTrue(mockRunner.lastExtraArgs.contains("--offline"))
@@ -165,6 +178,30 @@ class DependencyManagerTest {
         ): Int {
             lastTasks = tasks
             lastExtraArgs = extraArgs
+            if (tasks.contains("qutivexResolve") && exitCodeToReturn == 0) {
+                val gradleDir = projectDir.resolve(".qutivex/gradle")
+                Files.createDirectories(gradleDir)
+                val file = gradleDir.resolve("resolved-dependencies.txt")
+                val manifestFile = projectDir.resolve("qutivex.toml")
+                val content = if (Files.exists(manifestFile)) {
+                    val m = ManifestParser().parse(manifestFile)
+                    buildString {
+                        m.dependencies.forEach { (coord, ver) ->
+                            val parts = coord.split(":")
+                            val group = parts.getOrNull(0) ?: coord
+                            val artifact = parts.getOrNull(1) ?: coord
+                            append("$group\t$artifact\t$ver\truntime\ttrue\tsha256:abc\thttps://repo.maven.apache.org/maven2/\t\n")
+                        }
+                        m.testDependencies.forEach { (coord, ver) ->
+                            val parts = coord.split(":")
+                            val group = parts.getOrNull(0) ?: coord
+                            val artifact = parts.getOrNull(1) ?: coord
+                            append("$group\t$artifact\t$ver\ttest\ttrue\tsha256:def\thttps://repo.maven.apache.org/maven2/\t\n")
+                        }
+                    }
+                } else ""
+                Files.writeString(file, content)
+            }
             return exitCodeToReturn
         }
     }
