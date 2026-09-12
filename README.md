@@ -8,19 +8,31 @@ Qutivex simplifies Kotlin development. It manages project initialization, depend
 
 ## 🚀 Quick Start
 
-### Windows Installation (MSI)
+### Installation
 
+#### Windows (MSI Installer)
 1. Download **`qutivex-x64.msi`** from the [GitHub Releases](https://github.com/babar-xagi/Qutivex/releases) page.
 2. Run the installer (installs to `C:\Program Files\Qutivex\` and automatically configures your `PATH`).
-3. Open a new PowerShell terminal and verify:
 
+Or install via PowerShell:
 ```powershell
+irm https://raw.githubusercontent.com/babar-xagi/Qutivex/main/scripts/install.ps1 | iex
+```
+
+#### Linux & macOS
+Install using the automated POSIX installer:
+```bash
+curl -fsSL https://raw.githubusercontent.com/babar-xagi/Qutivex/main/scripts/install.sh | bash
+```
+
+Verify your installation:
+```bash
 qutivex --version
 qutivex doctor
 ```
 
 > [!TIP]
-> **Prerequisites:** Only **JDK 21** (e.g. Eclipse Adoptium Temurin 21) is required on your machine. You do **not** need to install Gradle, Maven, or Kotlin separately — Qutivex manages its backend and toolchains automatically!
+> **Prerequisites:** Only **JDK 21** (e.g. Eclipse Adoptium Temurin 21) is required on your machine. See [Toolchain & JDK Architecture](docs/toolchains.md). You do **not** need to install Gradle, Maven, or Kotlin separately — Qutivex manages its backend and toolchains automatically!
 
 ---
 
@@ -184,11 +196,16 @@ Qutivex is tuned for instant developer feedback:
 | `qutivex build` | Build release application distributions under `build/distributions/` |
 | `qutivex add <coordinate> [-t\|--test]` | Add a dependency and sync lockfile (`group:artifact:version` or `@version`) |
 | `qutivex remove <coordinate> [-t\|--test]` | Remove a dependency from `qutivex.toml` and update lockfile |
+| `qutivex update <coordinate> [-t\|--test]` | Update an existing dependency to a new version |
 | `qutivex list` | Display declared runtime and test dependencies |
+| `qutivex tree [--scope <scope>] [--depth <N>]` | Render the transitive dependency tree hierarchy |
 | `qutivex install [--frozen] [--offline]` | Download and lock dependencies (CI `--frozen`, offline cache `--offline`) |
 | `qutivex doctor` | Inspect local environment, JDK 21 installation, and Maven Central connectivity |
 | `qutivex --version` | Display installed Qutivex version |
 | `qutivex --help` | Show general help or command-specific options (`qutivex <command> --help`) |
+
+See [CLI Specification](docs/cli.md) for full details and options.
+See [Performance Benchmarks](docs/benchmarks.md) for execution timings.
 
 ---
 

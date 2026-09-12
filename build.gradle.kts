@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.qutivex"
-version = providers.gradleProperty("qutivexVersion").getOrElse("0.2.2-dev")
+version = providers.gradleProperty("qutivexVersion").getOrElse("0.3.0-dev")
 
 subprojects {
     group = rootProject.group
@@ -43,5 +43,13 @@ tasks.register<Exec>("packageWindowsMsi") {
         "-Version",
         packageVersion,
     )
+}
+
+tasks.register<Copy>("packageDistributionArchives") {
+    group = "distribution"
+    description = "Copies distZip and distTar distribution archives into dist/"
+    dependsOn(":cli:distZip", ":cli:distTar")
+    from(project(":cli").layout.buildDirectory.dir("distributions"))
+    into(layout.projectDirectory.dir("dist"))
 }
 

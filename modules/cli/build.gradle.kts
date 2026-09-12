@@ -100,3 +100,8 @@ tasks.test {
     useJUnitPlatform()
 }
 
+tasks.named<Tar>("distTar") {
+    compression = Compression.GZIP
+    archiveExtension.set("tar.gz")
+}
+

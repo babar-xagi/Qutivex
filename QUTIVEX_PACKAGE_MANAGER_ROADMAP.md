@@ -21,8 +21,9 @@ This repository contains the foundation, not a usable package manager yet.
 | Reading manifest (`schema-version = 1`) | Implemented strict validation |
 | Running, testing, and building generated projects (`run`, `test`, `build`) | Implemented Gradle-backed preview |
 | Managed Gradle backend and JDK bootstrap | Implemented pinned Gradle backend |
-| Dependency resolution, installation, cache, and lockfile | Planned (Phase 2) |
-| Public cross-platform installation | Planned (Phase 3) |
+| Dependency resolution, installation, cache, and lockfile | Implemented (Phase 2) |
+| Public cross-platform alpha distribution, tree, update, and benchmarks | Implemented (Phase 3) |
+| IDE bridge and toolchain upgrades | Planned (Phase 4) |
 
 An initialized project contains a valid manifest and Kotlin source.
 Projects can now be run through `qutivex run`, tested through `qutivex test`,
@@ -240,7 +241,7 @@ Reject a stale/missing lock in frozen mode, reject a tampered artifact, and fini
 a warm offline install. A missing offline artifact must identify the missing input.
 Delete disposable backend state and regenerate it without changing the lock.
 
-## Phase 3 - Public alpha distribution and measured performance
+## Phase 3 - Public alpha distribution and measured performance (Implemented)
 
 **Milestone:** fresh users can complete the MVP reliably across supported platforms.
 

@@ -3,6 +3,7 @@ package dev.qutivex.cli
 import dev.qutivex.core.dependency.DependencyCoordinate
 import dev.qutivex.engine.dependency.DependencyException
 import dev.qutivex.engine.dependency.DependencyManager
+import dev.qutivex.engine.dependency.TransitiveChange
 import dev.qutivex.engine.diagnostics.EnvironmentDiagnostics
 import dev.qutivex.engine.lockfile.LockfileException
 import dev.qutivex.engine.manifest.ManifestParseException
@@ -63,6 +64,14 @@ class QutivexCli(
                 }
                 Command.ListDepsHelp -> {
                     stdout.println(LIST_HELP)
+                    0
+                }
+                Command.TreeHelp -> {
+                    stdout.println(TREE_HELP)
+                    0
+                }
+                Command.UpdateHelp -> {
+                    stdout.println(UPDATE_HELP)
                     0
                 }
                 Command.InstallHelp -> {
@@ -198,6 +207,47 @@ class QutivexCli(
                     stdout.println("⏱️ Checked in ${formatDuration(elapsed)}")
                     0
                 }
+                is Command.Tree -> {
+                    val treeOutput = dependencyManager.tree(
+                        projectDir = workingDirectory,
+                        scope = command.scope,
+                        maxDepth = command.maxDepth,
+                        verbose = command.verbose,
+                    )
+                    stdout.println(treeOutput)
+                    0
+                }
+                is Command.Update -> {
+                    val start = System.currentTimeMillis()
+                    stdout.println("🔍 Resolving update for ${command.coordinate.key} -> ${command.coordinate.version}...")
+                    val result = dependencyManager.update(
+                        projectDir = workingDirectory,
+                        coordinate = command.coordinate,
+                        isTest = command.isTest,
+                        verbose = command.verbose,
+                        stdout = stdout,
+                        stderr = stderr,
+                    )
+                    val elapsed = System.currentTimeMillis() - start
+                    if (result.oldVersion == result.newVersion) {
+                        stdout.println("Dependency '${command.coordinate.key}' is already at version ${result.newVersion}.")
+                    } else {
+                        val section = if (result.isTest) "[test-dependencies]" else "[dependencies]"
+                        stdout.println("🔄 Updated ${command.coordinate.key}: ${result.oldVersion} -> ${result.newVersion} in $section ⏱️ (${formatDuration(elapsed)})")
+                        if (result.transitiveChanges.isNotEmpty()) {
+                            stdout.println("Transitive changes:")
+                            for (ch in result.transitiveChanges) {
+                                when (ch.type) {
+                                    TransitiveChange.ChangeType.UPGRADED -> stdout.println("  • ${ch.key}: ${ch.oldVersion} -> ${ch.newVersion} (upgraded)")
+                                    TransitiveChange.ChangeType.DOWNGRADED -> stdout.println("  • ${ch.key}: ${ch.oldVersion} -> ${ch.newVersion} (downgraded)")
+                                    TransitiveChange.ChangeType.ADDED -> stdout.println("  • ${ch.key}:${ch.newVersion} (added)")
+                                    TransitiveChange.ChangeType.REMOVED -> stdout.println("  • ${ch.key}:${ch.oldVersion} (removed)")
+                                }
+                            }
+                        }
+                    }
+                    0
+                }
                 is Command.Install -> {
                     val start = System.currentTimeMillis()
                     if (!command.offline || !command.frozen) {
@@ -270,6 +320,8 @@ class QutivexCli(
             "add" -> parseAdd(args.drop(1))
             "remove" -> parseRemove(args.drop(1))
             "list" -> parseList(args.drop(1))
+            "tree" -> parseTree(args.drop(1))
+            "update" -> parseUpdate(args.drop(1))
             "install" -> parseInstall(args.drop(1))
             "doctor" -> parseDoctor(args.drop(1))
             else -> throw UsageException("Unknown ${if (first.startsWith('-')) "option" else "command"}: $first")
@@ -425,6 +477,82 @@ class QutivexCli(
         return Command.ListDeps
     }
 
+    private fun parseTree(args: List<String>): Command {
+        if (args.size == 1 && args.first() in setOf("--help", "-h")) return Command.TreeHelp
+        var scope = "all"
+        var maxDepth = Int.MAX_VALUE
+        var verbose = false
+        var i = 0
+        while (i < args.size) {
+            val arg = args[i]
+            when {
+                arg in setOf("--help", "-h") -> return Command.TreeHelp
+                arg in setOf("--verbose", "-v") -> verbose = true
+                arg == "--scope" -> {
+                    if (i + 1 >= args.size) throw UsageException("Missing value for '--scope'. Expected 'runtime', 'test', or 'all'.")
+                    scope = args[++i].lowercase()
+                    if (scope !in setOf("runtime", "test", "all")) {
+                        throw UsageException("Invalid scope '$scope'. Expected 'runtime', 'test', or 'all'.")
+                    }
+                }
+                arg.startsWith("--scope=") -> {
+                    scope = arg.substringAfter("--scope=").lowercase()
+                    if (scope !in setOf("runtime", "test", "all")) {
+                        throw UsageException("Invalid scope '$scope'. Expected 'runtime', 'test', or 'all'.")
+                    }
+                }
+                arg == "--depth" -> {
+                    if (i + 1 >= args.size) throw UsageException("Missing value for '--depth'. Expected positive integer.")
+                    val depthVal = args[++i].toIntOrNull()
+                    if (depthVal == null || depthVal < 1) {
+                        throw UsageException("Invalid depth. Expected a positive integer.")
+                    }
+                    maxDepth = depthVal
+                }
+                arg.startsWith("--depth=") -> {
+                    val depthVal = arg.substringAfter("--depth=").toIntOrNull()
+                    if (depthVal == null || depthVal < 1) {
+                        throw UsageException("Invalid depth. Expected a positive integer.")
+                    }
+                    maxDepth = depthVal
+                }
+                arg.startsWith('-') -> throw UsageException("Unknown option for 'tree': $arg")
+                else -> throw UsageException("'tree' does not accept positional arguments: $arg")
+            }
+            i++
+        }
+        return Command.Tree(scope, maxDepth, verbose)
+    }
+
+    private fun parseUpdate(args: List<String>): Command {
+        if (args.size == 1 && args.first() in setOf("--help", "-h")) return Command.UpdateHelp
+        if (args.isEmpty()) {
+            throw UsageException("Missing dependency coordinate. Usage: qutivex update <coordinate> [--test] [--verbose]")
+        }
+        var coordinateStr: String? = null
+        var isTest: Boolean? = null
+        var verbose = false
+        for (arg in args) {
+            when {
+                arg in setOf("--help", "-h") -> return Command.UpdateHelp
+                arg in setOf("--test", "-t") -> isTest = true
+                arg in setOf("--verbose", "-v") -> verbose = true
+                arg.startsWith('-') -> throw UsageException("Unknown option for 'update': $arg")
+                coordinateStr != null -> throw UsageException("'update' accepts at most one dependency coordinate.")
+                else -> coordinateStr = arg
+            }
+        }
+        if (coordinateStr == null) {
+            throw UsageException("Missing dependency coordinate. Usage: qutivex update <coordinate> [--test] [--verbose]")
+        }
+        val coordinate = try {
+            DependencyCoordinate.parse(coordinateStr)
+        } catch (e: IllegalArgumentException) {
+            throw UsageException(e.message ?: "Invalid dependency coordinate.")
+        }
+        return Command.Update(coordinate, isTest, verbose)
+    }
+
     private fun parseInstall(args: List<String>): Command {
         if (args.size == 1 && args.first() in setOf("--help", "-h")) return Command.InstallHelp
         var frozen = false
@@ -473,6 +601,8 @@ class QutivexCli(
         data object AddHelp : Command
         data object RemoveHelp : Command
         data object ListDepsHelp : Command
+        data object TreeHelp : Command
+        data object UpdateHelp : Command
         data object InstallHelp : Command
         data object DoctorHelp : Command
         data object Version : Command
@@ -483,6 +613,8 @@ class QutivexCli(
         data class Add(val coordinate: DependencyCoordinate, val isTest: Boolean, val verbose: Boolean = false) : Command
         data class Remove(val coordinateKey: String, val isTest: Boolean, val verbose: Boolean = false) : Command
         data object ListDeps : Command
+        data class Tree(val scope: String, val maxDepth: Int, val verbose: Boolean = false) : Command
+        data class Update(val coordinate: DependencyCoordinate, val isTest: Boolean?, val verbose: Boolean = false) : Command
         data class Install(val frozen: Boolean, val offline: Boolean, val verbose: Boolean = false) : Command
         data object Doctor : Command
     }
@@ -517,7 +649,9 @@ class QutivexCli(
               build               Build project distributions
               add <dep>           Add a dependency to qutivex.toml
               remove <dep>        Remove a dependency from qutivex.toml
+              update <dep>        Update a dependency to a new version
               list                List project dependencies
+              tree                Display transitive dependency tree
               install             Resolve and lock dependencies to qutivex.lock
               doctor              Inspect local environment and requirements
               help                Show this help
@@ -619,6 +753,23 @@ class QutivexCli(
               qutivex remove org.junit.jupiter:junit-jupiter --test
         """.trimIndent()
 
+        val UPDATE_HELP = """
+            Usage: qutivex update <coordinate> [-t|--test] [-v|--verbose]
+
+            Update an existing dependency to a new version in qutivex.toml and qutivex.lock.
+            Coordinates can be specified as 'group:artifact:version' or 'group:artifact@version'.
+
+            Options:
+              -t, --test        Update in [test-dependencies]
+              -v, --verbose     Show complete resolution output
+              -h, --help        Show this help
+
+            Examples:
+              qutivex update org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2
+              qutivex update io.ktor:ktor-client-core@3.0.0
+              qutivex update org.junit.jupiter:junit-jupiter:5.10.2 --test
+        """.trimIndent()
+
         val LIST_HELP = """
             Usage: qutivex list
 
@@ -626,6 +777,24 @@ class QutivexCli(
 
             Options:
               -h, --help        Show this help
+        """.trimIndent()
+
+        val TREE_HELP = """
+            Usage: qutivex tree [--scope <runtime|test|all>] [--depth <N>] [-v|--verbose]
+
+            Display the transitive dependency tree from qutivex.lock.
+
+            Options:
+              --scope <scope>   Filter tree by scope: runtime, test, or all (default: all)
+              --depth <N>       Limit tree display depth to N levels
+              -v, --verbose     Show checksums and repository URLs
+              -h, --help        Show this help
+
+            Examples:
+              qutivex tree
+              qutivex tree --scope runtime
+              qutivex tree --depth 2
+              qutivex tree --verbose
         """.trimIndent()
 
         val INSTALL_HELP = """

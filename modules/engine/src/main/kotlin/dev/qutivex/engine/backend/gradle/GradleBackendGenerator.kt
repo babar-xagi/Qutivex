@@ -5,6 +5,7 @@ import java.io.IOException
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 
 /** Generates disposable pinned Gradle backend files in `<project>/.qutivex/gradle/`. */
@@ -220,11 +221,21 @@ class GradleBackendGenerator {
     private fun copyResource(resourcePath: String, target: Path, executable: Boolean = false) {
         val stream = javaClass.getResourceAsStream(resourcePath)
             ?: throw IOException("Backend resource not found: $resourcePath")
-        stream.use { input ->
-            Files.copy(input, target, REPLACE_EXISTING)
-        }
-        if (executable) {
-            target.toFile().setExecutable(true, false)
+        val temp = target.resolveSibling(target.fileName.toString() + ".tmp." + System.nanoTime())
+        try {
+            stream.use { input ->
+                Files.copy(input, temp, REPLACE_EXISTING)
+            }
+            if (executable) {
+                temp.toFile().setExecutable(true, false)
+            }
+            try {
+                Files.move(temp, target, ATOMIC_MOVE, REPLACE_EXISTING)
+            } catch (_: Exception) {
+                Files.move(temp, target, REPLACE_EXISTING)
+            }
+        } finally {
+            Files.deleteIfExists(temp)
         }
     }
 
@@ -232,7 +243,17 @@ class GradleBackendGenerator {
         if (Files.exists(path) && Files.readString(path, UTF_8) == content) {
             return
         }
-        Files.writeString(path, content, UTF_8)
+        val temp = path.resolveSibling(path.fileName.toString() + ".tmp." + System.nanoTime())
+        try {
+            Files.writeString(temp, content, UTF_8)
+            try {
+                Files.move(temp, path, ATOMIC_MOVE, REPLACE_EXISTING)
+            } catch (_: Exception) {
+                Files.move(temp, path, REPLACE_EXISTING)
+            }
+        } finally {
+            Files.deleteIfExists(temp)
+        }
     }
 
     companion object {

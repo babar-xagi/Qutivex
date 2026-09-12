@@ -14,7 +14,9 @@ Qutivex provides a modern, high-speed CLI for Kotlin/JVM projects, combining pro
 | `build` | `qutivex build [--verbose]` | Compile and produce release distributions under `build/distributions/` |
 | `add` | `qutivex add <coordinate> [-t\|--test] [--verbose]` | Add a dependency to `qutivex.toml` and sync `qutivex.lock` |
 | `remove` | `qutivex remove <coordinate> [-t\|--test] [--verbose]` | Remove a dependency from `qutivex.toml` and update `qutivex.lock` |
+| `update` | `qutivex update <coordinate> [-t\|--test] [--verbose]` | Update an existing dependency to a new version |
 | `list` | `qutivex list` | Display all project dependencies and test dependencies |
+| `tree` | `qutivex tree [--scope <scope>] [--depth <N>] [-v]` | Display the transitive dependency tree hierarchy |
 | `install` | `qutivex install [--frozen] [--offline] [--verbose]` | Download and resolve dependencies; reconcile `qutivex.lock` |
 | `doctor` | `qutivex doctor` | Inspect environment, Java 21 runtime, and Maven Central connectivity |
 | `help` | `qutivex --help`, `qutivex <cmd> --help` | Display general help or command-specific options |
@@ -174,6 +176,73 @@ Usage: qutivex list
   • org.junit.jupiter:junit-jupiter:5.10.2
 
 ⏱️ Checked in 14ms
+```
+
+---
+
+### `qutivex update`
+
+Updates an existing direct dependency to a new version, verifies compatibility, updates `qutivex.lock`, and reports transitive changes.
+
+```text
+Usage: qutivex update <coordinate> [-t|--test] [-v|--verbose]
+```
+
+- If resolution fails, Qutivex rolls back `qutivex.toml` and `qutivex.lock` cleanly.
+- Reports what transitive dependencies were upgraded, downgraded, added, or removed.
+
+**Examples:**
+```powershell
+qutivex update org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2
+qutivex update io.ktor:ktor-client-core@3.0.1
+qutivex update org.junit.jupiter:junit-jupiter:5.10.3 --test
+```
+
+**Output Example:**
+```text
+🔍 Resolving update for org.jetbrains.kotlinx:kotlinx-coroutines-core -> 1.10.2...
+🔄 Updated org.jetbrains.kotlinx:kotlinx-coroutines-core: 1.10.1 -> 1.10.2 in [dependencies] ⏱️ (1.75s)
+Transitive changes:
+  • org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm: 1.10.1 -> 1.10.2 (upgraded)
+```
+
+---
+
+### `qutivex tree`
+
+Renders the project's transitive dependency tree directly from `qutivex.lock` in sub-second time without querying the network or Gradle backend.
+
+```text
+Usage: qutivex tree [--scope <runtime|test|all>] [--depth <N>] [-v|--verbose]
+```
+
+- `--scope <scope>`: Limit tree to `runtime`, `test`, or `all` (default: `all`).
+- `--depth <N>`: Limit tree traversal depth to `N` levels.
+- `-v, --verbose`: Display checksum digests and repository origin URLs.
+- Identifies circular or repeated dependencies with `(*)` to prevent redundant subtree expansion.
+
+**Examples:**
+```powershell
+qutivex tree
+qutivex tree --scope runtime
+qutivex tree --depth 2
+qutivex tree --verbose
+```
+
+**Output Example:**
+```text
+my-service v0.1.0 (D:\projects\my-service)
+├── [dependencies]
+│   └── org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2
+│       └── org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2
+│           ├── org.jetbrains.kotlin:kotlin-stdlib:2.4.10
+│           │   └── org.jetbrains:annotations:23.0.0
+│           ├── org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2 (*)
+│           └── org.jetbrains:annotations:23.0.0 (*)
+└── [test-dependencies]
+    └── org.junit.jupiter:junit-jupiter:5.10.2
+        ├── org.junit.jupiter:junit-jupiter-api:5.10.2
+        └── org.junit.jupiter:junit-jupiter-params:5.10.2
 ```
 
 ---

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-09-12
+
+### Added
+- **Phase 3 - Public Alpha Distribution & Measured Performance**:
+  - **Transitive Dependency Tree (`qutivex tree`)**:
+    - Sub-second in-memory ASCII tree rendering directly from `qutivex.lock`.
+    - Scope filtering via `--scope runtime|test|all`.
+    - Depth limiting via `--depth <N>`.
+    - Verbose mode (`-v, --verbose`) displaying SHA-256 digests and repository origin URLs.
+    - Duplicate and circular dependency handling using `(*)` annotations.
+  - **Dependency Update Command (`qutivex update`)**:
+    - Explicit version updating for runtime and test dependencies with rollback safety on resolution failure.
+    - Reconciles `qutivex.lock` and surfaces transitive changes (upgrades, downgrades, additions, removals).
+  - **Backend & Wrapper Bootstrap Hardening**:
+    - Pinned cryptographic `distributionSha256Sum` for Gradle binary distribution wrapper.
+    - Atomic write operations (`ATOMIC_MOVE`) for generated backend and wrapper files to guarantee recovery from interrupted processes.
+  - **Cross-Platform Distribution & Packaging**:
+    - Automated `dist/` packaging of GZIP-compressed tarballs (`.tar.gz`) and zip archives (`.zip`) alongside Windows MSI installer (`qutivex-x64.msi`).
+    - POSIX installer script (`scripts/install.sh`) for Linux and macOS.
+    - PowerShell installer script (`scripts/install.ps1`) for Windows.
+  - **Toolchain & Benchmark Documentation**:
+    - Created `docs/toolchains.md` clarifying CLI runtime JDK 21+ vs application bytecode targets.
+    - Published reproducible benchmark measurements in `docs/benchmarks.md` and automated benchmark runner `scripts/benchmark.ps1`.
+
+---
+
 ## [0.2.2] - 2026-09-12
 
 ### Added
