@@ -202,12 +202,11 @@ qutivex install --offline --frozen
 
 ## ⚡ Performance & Native Engine
 
-Qutivex is tuned for instant developer feedback:
+Qutivex is tuned for instant developer feedback and is 100% Gradle-free:
 - **Native Dependency Engine (Phase 3.5)**: Dependency resolution, POM parsing (parent chains, BOM imports, exclusions, version conflicts), artifact downloading, and caching are executed natively in pure Kotlin without Gradle overhead.
+- **Native Kotlin/JVM Build Engine (Phase 4)**: Direct in-process Kotlin compiler invocation (`K2JVMCompiler`), native JUnit Platform test execution, and standalone runnable JAR packaging. Gradle is completely eliminated from normal project workflows (`build`, `run`, `test`).
 - **Dedicated Artifact Cache**: Artifacts and POMs are cached under `~/.qutivex/cache/` with SHA-256 integrity checks, corruption detection, and concurrent-download locking.
-- **Persistent Compilation Daemons**: Reuses background daemons for compilation to eliminate JVM cold-start overhead.
-- **Build Cache (`--build-cache`)**: Warm builds and runs execute in under 2 seconds.
-- **VFS File Watching**: Incremental changes are tracked continuously.
+- **Incremental Build Cache**: Deterministic SHA-256 input fingerprints across sources, resources, classpaths, and toolchains. Sub-second up-to-date execution when inputs have not changed.
 - **Elapsed Timing**: Every command reports exact execution times so you know where your time is spent.
 
 ---

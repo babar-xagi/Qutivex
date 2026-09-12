@@ -112,9 +112,66 @@ repository = "https://repo.maven.apache.org/maven2/"
 
 ---
 
-## Backend Generation & Performance Optimizations
+---
 
-Disposable Gradle backend files reside in `.qutivex/gradle/`:
+## Native Kotlin/JVM Build Engine (Phase 4)
+
+In Phase 4, Qutivex completely eliminated Gradle from normal Kotlin/JVM `build`, `run`, and `test` workflows:
+
+```text
+Developer / CLI
+       ↓
+NativeBuildEngine
+       ↓
+├── SourceScanner (main/test sources & resources)
+├── ClasspathBuilder (lockfile + artifact cache + toolchain)
+├── IncrementalBuildManager (SHA-256 build fingerprints)
+├── KotlinCompilerRunner (direct in-process K2JVMCompiler)
+├── NativeTestRunner (JUnit Platform Launcher)
+└── JarPackager (runnable standalone JAR packaging)
+```
+
+### 1. Native Source Scanning (`SourceScanner`)
+- Discovers `.kt`, `.kts`, and `.java` source files under `src/main/kotlin` and `src/test/kotlin`.
+- Discovers resource files under `src/main/resources` and `src/test/resources` while preserving relative directory hierarchy.
+- Computes SHA-256 digests and file metadata for input fingerprinting.
+
+### 2. Classpath Resolution (`ClasspathBuilder`)
+- **Compile Classpath**: Runtime dependencies from `qutivex.lock` + toolchain `kotlin-stdlib` and core annotations.
+- **Runtime Classpath**: `build/classes/kotlin/main` + `build/resources/main` + runtime dependencies + `kotlin-stdlib`.
+- **Test Compile Classpath**: Main classes + runtime & test dependencies + `kotlin-stdlib` + `kotlin-test` / JUnit Jupiter.
+- **Test Runtime Classpath**: Test classes + test resources + main classes & resources + all dependencies + JUnit Platform engine & launcher JARs.
+
+### 3. Direct Kotlin Compilation (`KotlinCompilerRunner`)
+- Directly executes `org.jetbrains.kotlin.cli.jvm.K2JVMCompiler` in-process.
+- Configures JVM target, output directories, complete resolved classpaths, and `-no-stdlib` when stdlib is supplied explicitly.
+- Formats and captures compiler diagnostics cleanly with zero process startup overhead.
+
+### 4. Incremental Build Cache (`IncrementalBuildManager`)
+- Calculates a deterministic SHA-256 fingerprint over all build inputs:
+  - Source files (paths, sizes, modification timestamps, SHA-256 content hashes).
+  - Resource files (paths, sizes, timestamps, hashes).
+  - Classpath dependency JARs (file sizes and timestamps).
+  - Toolchain configuration (Kotlin compiler version, JVM target).
+- Saved atomically at `build/.qutivex-<scope>-fingerprint`.
+- If inputs match and compiled class files exist, compilation is skipped (`UP-TO-DATE`), yielding sub-second turnaround times.
+
+### 5. Native Test Runner (`NativeTestRunner` & `QutivexTestWorker`)
+- Executes unit and integration tests using the JUnit Platform Launcher.
+- Spawns an isolated test worker process (`QutivexTestWorker`) with the complete test classpath.
+- Streams live test events (`PASSED`, `FAILED`, `SKIPPED`) in real-time.
+- Captures failure diagnostics and returns proper process exit codes without Gradle test task overhead.
+
+### 6. Standalone Runnable JAR Packaging (`JarPackager`)
+- Assembles compiled classes, resources, and bundled runtime dependencies into `build/libs/<project>-<version>.jar`.
+- Sets `Main-Class` in `META-INF/MANIFEST.MF` based on `[application] main-class` in `qutivex.toml`.
+- Produces self-contained runnable JARs executable via `java -jar <jar>`.
+
+---
+
+## Legacy Gradle Backend (Fallback)
+
+For legacy or transitional environments, Gradle backend generation remains available under `.qutivex/gradle/`:
 ```text
 <project>/
   .qutivex/
@@ -122,20 +179,9 @@ Disposable Gradle backend files reside in `.qutivex/gradle/`:
       build.gradle.kts
       settings.gradle.kts
       gradle.properties
-      gradlew
-      gradlew.bat
-      gradle/wrapper/
-        gradle-wrapper.jar
-        gradle-wrapper.properties
 ```
 
-### High-Performance Tuning
-- **Eliminated Redundant Wrapper Extraction**: Wrapper scripts and binary jars are only copied if missing.
-- **Persistent Compilation Daemon**: `org.gradle.daemon=true` keeps the Kotlin compilation daemon alive in the background.
-- **Build Caching**: `--build-cache` is passed to all tasks, enabling instant task execution when inputs have not changed.
-- **Parallel Compilation & VFS Watching**: `org.gradle.parallel=true` and `org.gradle.vfs.watch=true` minimize change detection latency.
-
-Warm command runs (`run`, `test`, `build`) execute in under 2 seconds.
+Normal Kotlin/JVM projects no longer invoke or require Gradle.
 
 ---
 

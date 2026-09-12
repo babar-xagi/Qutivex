@@ -49,15 +49,15 @@ cd my-service
 
 ### `qutivex run`
 
-Compiles and executes the application entry point specified in `qutivex.toml` (`application.main-class`).
+Compiles and executes the application entry point specified in `qutivex.toml` (`application.main-class`) natively without Gradle.
 
 ```text
 Usage: qutivex run [--verbose] [-- <arguments...>]
 ```
 
 - Any arguments after `--` are passed verbatim to the application's `main(args: Array<String>)` function.
-- Suppresses internal build noise by default; pass `--verbose` to inspect full compilation details.
-- Leverages Gradle daemon reuse and local build caching for sub-second re-executions.
+- Uses direct in-process Kotlin compilation (`K2JVMCompiler`) and input fingerprinting for instant re-executions.
+- Pass `--verbose` to inspect compiler arguments and detailed execution steps.
 - Displays total elapsed execution time (`⏱️ Finished in 1.25s`).
 
 **Examples:**
@@ -71,14 +71,14 @@ qutivex run -- --port 8080 --profile dev
 
 ### `qutivex test`
 
-Compiles test sources and runs the test suite using JUnit Platform.
+Compiles test sources and executes the test suite natively using the JUnit Platform Launcher without Gradle.
 
 ```text
 Usage: qutivex test [--verbose]
 ```
 
 - Clean output by default displaying test results (`PASSED`, `SKIPPED`, `FAILED`).
-- Pass `--verbose` to print raw Gradle execution lifecycle.
+- Executes in an isolated JVM process using `QutivexTestWorker`.
 - Reports total test elapsed duration (`✅ Tests passed in 850ms`).
 - Returns exit code `0` on success, `1` if any test fails (diagnostics automatically printed to stderr).
 
@@ -92,15 +92,16 @@ qutivex test --verbose
 
 ### `qutivex build`
 
-Produces release application distributions.
+Compiles sources, executes the test suite, and packages a standalone executable JAR in `build/libs/`.
 
 ```text
 Usage: qutivex build [--verbose]
 ```
 
-- Clean emoji output by default (`📦 Building...`, `✅ Build completed in 1.10s`).
-- Pass `--verbose` to display full Gradle task graph and compiler outputs.
-- Generates standalone distribution ZIP and TAR archives in `build/distributions/`.
+- Clean emoji output by default (`📦 Building...`, `✔ Packaged app-0.1.0.jar`, `✅ Build completed in 1.10s`).
+- Checks incremental build cache and skips compilation when inputs have not changed (`UP-TO-DATE`).
+- Packages compiled classes, resources, and bundled runtime dependencies into `build/libs/<name>-<version>.jar`.
+- The packaged JAR is immediately runnable with `java -jar build/libs/<name>-<version>.jar`.
 
 **Example:**
 ```powershell

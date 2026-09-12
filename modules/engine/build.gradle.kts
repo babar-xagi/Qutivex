@@ -9,10 +9,11 @@ kotlin {
 dependencies {
     implementation(project(":core"))
     implementation(libs.tomlj)
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.kotlin.test.junit5)
-    testRuntimeOnly(libs.junit.jupiter.engine)
-    testRuntimeOnly(libs.junit.platform.launcher)
+    implementation(libs.kotlin.compiler.embeddable)
+    implementation(platform(libs.junit.bom))
+    implementation(libs.junit.platform.launcher)
+    implementation(libs.junit.jupiter.engine)
+    implementation(libs.kotlin.test.junit5)
 }
 
 tasks.test {
