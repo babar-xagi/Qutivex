@@ -87,8 +87,8 @@ class NativeBuildEngine(
                     classpath = compileCp,
                     toolchain = manifest.toolchain,
                 )
-            } else if (verbose) {
-                stdout.println("Main sources up-to-date")
+            } else {
+                stdout.println("Main sources UP-TO-DATE")
             }
         }
 
@@ -134,6 +134,8 @@ class NativeBuildEngine(
                     classpath = testCompileCp,
                     toolchain = manifest.toolchain,
                 )
+            } else {
+                stdout.println("Test sources UP-TO-DATE")
             }
 
             // Run tests as part of build lifecycle
@@ -145,6 +147,8 @@ class NativeBuildEngine(
                 stdout = stdout,
                 stderr = stderr,
                 verbose = verbose,
+                manifest = manifest,
+                lockfile = lockfile,
             )
 
             if (testExit != 0) {
@@ -423,6 +427,8 @@ class NativeBuildEngine(
             stdout = stdout,
             stderr = stderr,
             verbose = verbose,
+            manifest = manifest,
+            lockfile = lockfile,
         )
     }
 

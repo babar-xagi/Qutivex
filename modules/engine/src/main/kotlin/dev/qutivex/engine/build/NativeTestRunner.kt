@@ -20,6 +20,8 @@ class NativeTestRunner {
         stdout: PrintWriter,
         stderr: PrintWriter,
         verbose: Boolean = false,
+        manifest: dev.qutivex.core.manifest.ManifestSpec? = null,
+        lockfile: dev.qutivex.core.lockfile.LockfileSpec? = null,
     ): Int {
         if (!Files.exists(testClassesDir)) {
             stdout.println("No test classes found in $testClassesDir")
@@ -27,14 +29,17 @@ class NativeTestRunner {
         }
 
         // 1. Build complete classpath including QutivexTestWorker
-        val fullClasspath = LinkedHashSet<Path>()
-        fullClasspath.add(testClassesDir)
-        fullClasspath.addAll(testClasspath)
+        val rawClasspath = LinkedHashSet<Path>()
+        rawClasspath.add(testClassesDir)
+        rawClasspath.addAll(testClasspath)
 
         // Include the jar/dir containing QutivexTestWorker
         ClasspathBuilder.findJarForClass(QutivexTestWorker::class.java)?.let {
-            fullClasspath.add(it)
+            rawClasspath.add(it)
         }
+
+        val alignment = ClasspathBuilder.detectJUnitVersionAlignment(manifest, lockfile)
+        val fullClasspath = ClasspathBuilder.alignAndDeduplicateClasspath(rawClasspath.toList(), alignment)
 
         val cpString = fullClasspath
             .filter { Files.exists(it) }

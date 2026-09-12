@@ -159,6 +159,52 @@ class Phase4IntegrationTest {
         assertFalse(runDep.stderr.contains("GRADLE WAS CALLED"))
     }
 
+    @Test
+    fun `native test execution with explicit junit-jupiter 5_12_2 passes with zero OutputDirectoryProvider error`() {
+        val projectDir = tempDir.resolve("phase4-junit-5122-app")
+
+        // 1. Initialize project
+        val initResult = execute(listOf("init", projectDir.toString()))
+        assertEquals(0, initResult.exitCode, initResult.stderr)
+
+        // 2. Add junit-jupiter 5.12.2 dependency for test scope
+        val addResult = execute(listOf("add", "--test", "org.junit.jupiter:junit-jupiter:5.12.2"), projectDir)
+        assertEquals(0, addResult.exitCode, addResult.stderr)
+
+        // 3. Write JUnit Jupiter test using org.junit.jupiter.api annotations
+        val testFile = projectDir.resolve("src/test/kotlin/Jupiter5122Test.kt")
+        Files.createDirectories(testFile.parent)
+        Files.writeString(
+            testFile,
+            """
+                import org.junit.jupiter.api.Test
+                import org.junit.jupiter.api.Assertions.assertEquals
+
+                class Jupiter5122Test {
+                    @Test
+                    fun `jupiter 5_12_2 test execution succeeds`() {
+                        assertEquals("aligned", "alig" + "ned")
+                    }
+                }
+            """.trimIndent(),
+        )
+
+        // 4. Run native tests
+        val testResult = execute(listOf("test"), projectDir)
+        assertEquals(0, testResult.exitCode, "qutivex test should exit with code 0: stderr=${testResult.stderr}, stdout=${testResult.stdout}")
+        assertTrue(testResult.stdout.contains("PASSED"), "Output should show test passed: ${testResult.stdout}")
+
+        // 5. Verify NO OutputDirectoryProvider or version conflict errors
+        assertFalse(
+            testResult.stderr.contains("OutputDirectoryProvider"),
+            "stderr must not contain OutputDirectoryProvider error: ${testResult.stderr}",
+        )
+        assertFalse(
+            testResult.stdout.contains("OutputDirectoryProvider"),
+            "stdout must not contain OutputDirectoryProvider error: ${testResult.stdout}",
+        )
+    }
+
     private fun execute(args: List<String>, workingDirectory: Path = tempDir): Result {
         val stdout = StringWriter()
         val stderr = StringWriter()
