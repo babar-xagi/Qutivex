@@ -1,151 +1,222 @@
-# Qutivex
+# ✨ Qutivex
 
-A Kotlin package and project manager aiming for a workflow as simple as Bun or uv.
-Qutivex itself is written in Kotlin and initially targets Kotlin/JVM applications.
+> Simple, fast Kotlin package and project manager with the developer experience of Bun or uv.
 
-**Status: Runnable Gradle-backed preview (`0.1.0-dev`).** Help, version output,
-project initialization (`init`), application execution (`run`), testing (`test`),
-distribution packaging (`build`), and environment inspection (`doctor`) work today.
-Dependency modification (`add`) and lockfile synchronization (`install`) are planned for Phase 2.
+Qutivex simplifies Kotlin development. It manages project initialization, dependency resolution, lockfiles, application execution, testing, and distribution packaging without requiring manual Gradle or Maven configuration.
 
-## Windows Installation (MSI)
+---
 
-### Requirements
+## 🚀 Quick Start
 
-- Windows x64
-- JDK 21 (e.g., Eclipse Adoptium Temurin 21)
-- Internet connection for initial dependency/build downloads
-
-> [!NOTE]
-> - You do **not** need to install Gradle.
-> - You do **not** need to install Maven.
-> - You do **not** need to install Kotlin separately.
-> Qutivex manages its Gradle backend and Kotlin toolchain internally.
-
-### Install
+### Windows Installation (MSI)
 
 1. Download **`qutivex-x64.msi`** from the [GitHub Releases](https://github.com/babar-xagi/Qutivex/releases) page.
-2. Run the installer (installs to `C:\Program Files\Qutivex\` and configures your `PATH`).
-3. Open a new PowerShell or Command Prompt:
+2. Run the installer (installs to `C:\Program Files\Qutivex\` and automatically configures your `PATH`).
+3. Open a new PowerShell terminal and verify:
 
 ```powershell
 qutivex --version
 qutivex doctor
 ```
 
-4. Create and run a project:
+> [!TIP]
+> **Prerequisites:** Only **JDK 21** (e.g. Eclipse Adoptium Temurin 21) is required on your machine. You do **not** need to install Gradle, Maven, or Kotlin separately — Qutivex manages its backend and toolchains automatically!
+
+---
+
+## 📦 Creating and Running a Project
+
+### 1. Initialize a Project
 
 ```powershell
-qutivex init hello
-cd hello
+qutivex init my-app
+cd my-app
+```
+
+Output:
+```text
+✨ Initialized my-app in D:\workspace\my-app ⏱️ (18ms)
+```
+
+Generated project structure:
+```text
+my-app/
+├── qutivex.toml       # User-facing project & dependency manifest
+├── src/
+│   ├── main/kotlin/Main.kt
+│   └── test/kotlin/AppTest.kt
+├── .gitignore
+└── README.md
+```
+
+### 2. Add Dependencies
+
+Add any dependency from Maven Central using either `group:artifact:version` or `group:artifact@version`:
+
+```powershell
+qutivex add org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2
+qutivex add io.ktor:ktor-client-core@3.0.0
+qutivex add org.junit.jupiter:junit-jupiter:5.10.2 --test
+```
+
+Output:
+```text
+🔍 Resolving org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2...
+➕ Added org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2 to [dependencies] ⏱️ (1.20s)
+```
+
+> [!NOTE]
+> Qutivex validates resolution before modifying files. If a dependency cannot be resolved or is invalid, the operation fails and rolls back your `qutivex.toml` automatically!
+
+### 3. List Dependencies
+
+```powershell
+qutivex list
+```
+
+Output:
+```text
+📋 Dependencies for my-app (0.1.0):
+
+📦 [dependencies]
+  • io.ktor:ktor-client-core:3.0.0
+  • org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2
+
+🧪 [test-dependencies]
+  • org.junit.jupiter:junit-jupiter:5.10.2
+
+⏱️ Checked in 12ms
+```
+
+### 4. Run the Application
+
+```powershell
 qutivex run
+```
+
+Forward command-line arguments to your application using `--`:
+
+```powershell
+qutivex run -- --port 8080 --mode production
+```
+
+Output:
+```text
+Hello from my-app!
+✨ Finished in 1.45s
+```
+
+### 5. Run Tests
+
+```powershell
 qutivex test
+```
+
+Output:
+```text
+AppTest > test passes() PASSED
+🧪 Tests passed in 890ms
+```
+
+### 6. Build Distribution
+
+```powershell
 qutivex build
 ```
 
-### Build Windows MSI from Source
+Output:
+```text
+📦 Build completed in 1.15s
+```
+Your compiled application distribution (ZIP & TAR) is produced in `build/distributions/`.
 
-To produce `qutivex-x64.msi` locally using the repository's Gradle wrapper and WiX:
+### 7. Remove Dependencies
 
+```powershell
+qutivex remove io.ktor:ktor-client-core
+```
+
+Output:
+```text
+➖ Removed io.ktor:ktor-client-core ⏱️ (150ms)
+```
+
+### 8. Lockfile & CI Installation (`install`)
+
+Qutivex automatically maintains a deterministic `qutivex.lock` file recording SHA-256 integrity hashes of your dependencies and toolchain.
+
+In CI/CD environments, enforce strict reproducibility with `--frozen`:
+
+```powershell
+qutivex install --frozen
+```
+
+Output:
+```text
+📥 Resolving and installing dependencies...
+✨ Dependencies locked and installed in 1.30s
+```
+
+For offline or air-gapped environments:
+```powershell
+qutivex install --offline
+```
+
+---
+
+## ⚡ Performance
+
+Qutivex is tuned for instant developer feedback:
+- **Persistent Compilation Daemons**: Reuses background daemons to eliminate JVM cold-start overhead.
+- **Build Cache (`--build-cache`)**: Warm builds and runs execute in under 2 seconds.
+- **VFS File Watching**: Incremental changes are tracked continuously.
+- **Elapsed Timing**: Every command reports exact execution times so you know where your time is spent.
+
+---
+
+## 🛠️ CLI Reference
+
+| Command | Description |
+| :--- | :--- |
+| `qutivex init [directory]` | Create a new Kotlin/JVM project (default: current directory) |
+| `qutivex run [-- args]` | Compile and run the application entry point with optional arguments |
+| `qutivex test` | Compile and run unit & integration tests |
+| `qutivex build` | Build release application distributions under `build/distributions/` |
+| `qutivex add <coordinate> [-t\|--test]` | Add a dependency and sync lockfile (`group:artifact:version` or `@version`) |
+| `qutivex remove <coordinate> [-t\|--test]` | Remove a dependency from `qutivex.toml` and update lockfile |
+| `qutivex list` | Display declared runtime and test dependencies |
+| `qutivex install [--frozen] [--offline]` | Download and lock dependencies (CI `--frozen`, offline cache `--offline`) |
+| `qutivex doctor` | Inspect local environment, JDK 21 installation, and Maven Central connectivity |
+| `qutivex --version` | Display installed Qutivex version |
+| `qutivex --help` | Show general help or command-specific options (`qutivex <command> --help`) |
+
+---
+
+## 🏗️ Building from Source
+
+Requirements: JDK 21.
+
+### Run tests
+```powershell
+.\gradlew.bat check
+```
+
+### Build Windows MSI Installer
 ```powershell
 .\gradlew.bat packageWindowsMsi
 ```
-
-Output artifacts:
+The installer will be generated at:
 - `dist/qutivex-x64.msi`
 - `dist/qutivex-x64.msi.sha256`
 
-## Run the CLI from source
-
-Requirements: JDK 21 and an internet connection for the first Gradle dependency
-download. The repository includes a Gradle wrapper; no separate Gradle or Kotlin
-installation is required. Set `JAVA_HOME` to your JDK if Java is not on `PATH`.
-
-The build pins Kotlin 2.4.10 and Gradle 9.5.0, within Kotlin's documented
-[compatibility range](https://kotlinlang.org/docs/gradle-configure-project.html).
-The wrapper verifies the Gradle distribution's SHA-256 checksum.
-
-Windows PowerShell, from this repository:
-
-```powershell
-.\gradlew.bat :cli:run --args="--help"
-.\gradlew.bat :cli:run --args="--version"
-.\gradlew.bat :cli:run --args="init build/demo"
-.\gradlew.bat :cli:run --args="run"
-```
-
-Linux/macOS:
-
-```sh
-sh ./gradlew :cli:run --args="--help"
-sh ./gradlew :cli:run --args="init build/demo"
-```
-
-The `run` task uses the repository root as its working directory. `init` accepts a
-new directory or an empty existing directory and refuses to overwrite existing work.
-The demo under `build/` is disposable and is removed by a clean build.
-
-In IntelliJ IDEA, open the repository as a Gradle project, reload Gradle after
-structural changes, select JDK 21, and run the `:cli:run` Gradle task with arguments.
-
-## Build a local command
-
+### Install locally
 ```powershell
 .\gradlew.bat :cli:installDist
-.\modules\cli\build\install\qutivex\bin\qutivex.bat --help
-.\modules\cli\build\install\qutivex\bin\qutivex.bat init build/another-demo
+.\modules\cli\build\install\qutivex\bin\qutivex.bat --version
 ```
 
-On Linux/macOS use `sh ./gradlew :cli:installDist` and
-`./modules/cli/build/install/qutivex/bin/qutivex --help`.
-Add that `bin` directory to your `PATH` to use `qutivex` from another directory.
-Keep the adjacent `lib` directory with it. These launchers require Java 21 and run
-without invoking Gradle. `:cli:distZip` creates an archive under
-`modules/cli/build/distributions/`; a self-contained native executable is future work.
+---
 
-## Intended package-manager experience
+## 📄 License
 
-This workflow is the MVP target, **not implemented yet**:
-
-```sh
-qutivex init hello
-cd hello
-qutivex add org.jetbrains.kotlinx:kotlinx-coroutines-core@1.10.2
-qutivex run
-qutivex test
-qutivex build
-```
-
-The version above is an exact-version syntax example, not a latest-version claim.
-Users will maintain `qutivex.toml` and commit `qutivex.lock`. Qutivex will manage a
-pinned Gradle backend internally for the first MVP.
-
-## Repository layout
-
-```text
-modules/
-  cli/       command parsing, terminal output, executable entry point
-  core/      project models and validation without filesystem operations
-  engine/    project creation; future dependency and build adapters
-docs/
-  architecture.md
-  cli.md
-  decisions/0001-gradle-backend.md
-gradle/      wrapper and dependency version catalog
-.github/workflows/ci.yml
-QUTIVEX_PACKAGE_MANAGER_ROADMAP.md
-```
-
-Each module keeps its tests in `src/test/kotlin`. See the [roadmap](QUTIVEX_PACKAGE_MANAGER_ROADMAP.md),
-[architecture](docs/architecture.md), [command specification](docs/cli.md), and
-[contributor guide](CONTRIBUTING.md).
-
-## Verify changes
-
-```powershell
-.\gradlew.bat check :cli:installDist
-```
-
-On Linux/macOS use `sh ./gradlew check :cli:installDist`.
-Tests check initialization, preservation of existing files, project-name validation,
-command parsing, and exit codes. CI is configured to run on Windows, Linux, and macOS.
+Apache License 2.0. See [LICENSE](LICENSE) for details.

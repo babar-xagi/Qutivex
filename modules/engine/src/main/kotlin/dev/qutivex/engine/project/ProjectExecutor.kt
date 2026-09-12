@@ -33,7 +33,7 @@ class ProjectExecutor(
         } else {
             Files.deleteIfExists(argsFile)
         }
-        val extraArgs = listOf("--quiet")
+        val extraArgs = listOf("--quiet", "--build-cache")
         return processRunner.execute(
             projectDir = projectDir,
             tasks = listOf("run"),
@@ -53,7 +53,7 @@ class ProjectExecutor(
         return processRunner.execute(
             projectDir = projectDir,
             tasks = listOf("test"),
-            extraArgs = listOf("--console=plain"),
+            extraArgs = listOf("--console=plain", "--build-cache"),
             stdout = stdout,
             stderr = stderr,
         )
@@ -68,7 +68,7 @@ class ProjectExecutor(
         return processRunner.execute(
             projectDir = projectDir,
             tasks = listOf("build"),
-            extraArgs = listOf("--console=plain"),
+            extraArgs = listOf("--console=plain", "--build-cache"),
             stdout = stdout,
             stderr = stderr,
         )

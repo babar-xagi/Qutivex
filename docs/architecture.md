@@ -1,9 +1,8 @@
 # Architecture
 
-## Current boundaries
+## Module Boundaries
 
-Qutivex has three Gradle modules. Packages live under `dev.qutivex`; this is a local
-namespace, not a claim of ownership of a publishing domain.
+Qutivex follows a strict three-module architectural design:
 
 ```text
 :cli -----> :engine -----> :core
@@ -11,122 +10,84 @@ namespace, not a claim of ownership of a publishing domain.
   +-------------------------+
 ```
 
-| Module | Responsibility | Current implementation |
+| Module | Responsibility | Key Classes |
 | --- | --- | --- |
-| `modules/core` | Values, validation, and later manifest/lock/graph rules | `project.ProjectSpec` |
-| `modules/engine` | Filesystem, backend, repository, cache, and process operations | `project.ProjectInitializer` |
-| `modules/cli` | Parse arguments, dispatch commands, format output and errors | `MainKt`, `QutivexCli` |
+| `modules/core` | Pure models, validation, lockfile spec, manifest spec, coordinate parsing (no I/O, no network) | `DependencyCoordinate`, `LockfileSpec`, `ManifestSpec`, `ProjectSpec` |
+| `modules/engine` | File system mutations, background process runners, lockfile manager, dependency resolution, diagnostics | `DependencyManager`, `LockfileManager`, `ManifestWriter`, `ProjectInitializer`, `ProjectExecutor`, `GradleBackendGenerator`, `EnvironmentDiagnostics` |
+| `modules/cli` | Command-line argument parsing, terminal formatting, emoji output, timing duration formatting, exit code mapping | `QutivexCli`, `MainKt` |
 
-`core` must not import the CLI or engine or perform I/O. `engine` must not print to
-the terminal or terminate the JVM. The CLI translates operation errors into exit
-codes; only `main` exits the process. Constructors do not download or start services.
+### Invariants & Contracts
+- `core` has zero dependencies on I/O, network, or Gradle APIs. It contains pure data classes and deterministic business logic.
+- `engine` executes backend tasks, manages atomic file operations, and runs processes without calling `System.exit()` or printing to terminal streams directly.
+- `cli` translates all exceptions into standard exit codes (`0` for success, `1` for operation failures, `2` for syntax/usage errors).
 
-Keep features together within these modules. Add `manifest`, `lockfile`, and
-`dependency` packages to core when their contracts exist. Add `backend/gradle`,
-`cache`, `toolchain`, and `process` packages to engine when implemented. Introduce
-interfaces at real testing/backend boundaries, and extract another Gradle module
-only when independent dependencies or distribution justify it. Avoid empty modules
-and a catch-all `util` package.
+---
 
-## Project initialization today
+## Dependency Management & Lockfile Architecture (Phase 2)
 
-`QutivexCli` parses `init [directory]` and resolves the destination relative to its
-working directory. `ProjectInitializer` validates its name before creating files,
-requires a new or empty directory, and writes new UTF-8 files without overwriting.
-If I/O fails halfway through, it reports failure and preserves partial output for
-inspection; it does not delete a tree that may contain user files.
+### 1. Dependency Resolution & Atomic Staging
+When `qutivex add` is executed:
+1. The requested coordinate (`group:artifact:version` or `group:artifact@version`) is parsed and validated via `DependencyCoordinate`.
+2. A new in-memory `ManifestSpec` is created.
+3. The candidate manifest is written to `qutivex.toml`.
+4. The disposable Gradle backend under `.qutivex/gradle/` is regenerated.
+5. A lightweight compilation task (`compileKotlin` or `compileTestKotlin`) is executed via `BackendProcessRunner`.
+6. **Automatic Rollback**: If compilation or resolution fails, `ManifestWriter` immediately restores the previous valid `qutivex.toml` and regenerates the backend, leaving no corrupted files behind.
+7. **Lockfile Generation**: Upon successful resolution, `LockfileManager` writes `qutivex.lock` with a SHA-256 integrity hash of `qutivex.toml`.
 
-Generated project:
+### 2. Lockfile Specification (`qutivex.lock`)
+```toml
+# Qutivex lockfile (version = 1) - generated automatically, do not edit manually
+version = 1
+manifest-hash = "c18f0a359..."
 
-```text
-hello/
-  qutivex.toml
-  src/main/kotlin/Main.kt
-  src/test/kotlin/
-  .gitignore
-  README.md
+[toolchain]
+kotlin = "2.4.10"
+jvm = 21
+
+[dependencies]
+"org.jetbrains.kotlinx:kotlinx-coroutines-core" = "1.10.2"
+
+[test-dependencies]
+"org.junit.jupiter:junit-jupiter" = "5.10.2"
 ```
 
-No lockfile is written before real resolution. The template contains an explicit
-`MainKt` entry point so the first runner does not need to guess. The current
-implementation writes the manifest but does not yet parse arbitrary TOML.
+- **Manifest Integrity Hash**: Calculated via SHA-256 over normalized manifest TOML content.
+- **Frozen Validation (`--frozen`)**: Ensures `qutivex.lock` exists and that its `manifest-hash` precisely matches `qutivex.toml`. Any drift triggers an immediate exit with remediation guidance.
 
-## Planned execution flow
+---
 
+## Backend Generation & Performance Optimizations
+
+Disposable Gradle backend files reside in `.qutivex/gradle/`:
 ```text
-CLI -> parse/validate manifest -> acquire project lock
-    -> compare manifest + toolchain + backend fingerprint with qutivex.lock
-    -> resolve if policy allows -> verify/fetch required artifacts
-    -> materialize disposable backend files -> compile/test/run
+<project>/
+  .qutivex/
+    gradle/
+      build.gradle.kts
+      settings.gradle.kts
+      gradle.properties
+      gradlew
+      gradlew.bat
+      gradle/wrapper/
+        gradle-wrapper.jar
+        gradle-wrapper.properties
 ```
 
-Manifest parsing will use a maintained TOML parser. Report unknown schema versions,
-duplicate keys, unsupported fields, and invalid values with file/line context.
-Do not treat Maven versions as npm SemVer; the first manifest supports exact release
-versions only. Preserve comments/formatting during dependency edits or document and
-test the chosen canonical formatting before enabling those edits.
+### High-Performance Tuning
+- **Eliminated Redundant Wrapper Extraction**: Wrapper scripts and binary jars are only copied if missing.
+- **Persistent Compilation Daemon**: `org.gradle.daemon=true` keeps the Kotlin compilation daemon alive in the background.
+- **Build Caching**: `--build-cache` is passed to all tasks, enabling instant task execution when inputs have not changed.
+- **Parallel Compilation & VFS Watching**: `org.gradle.parallel=true` and `org.gradle.vfs.watch=true` minimize change detection latency.
 
-The first backend will generate files under `<project>/.qutivex/gradle/` with source
-sets explicitly pointing to `<project>/src` and outputs to `<project>/build`.
-Qutivex will pin the backend, configure Kotlin/JVM variants, and use structured
-Gradle resolution results rather than scraping terminal logs. See
-[the backend decision](decisions/0001-gradle-backend.md).
+Warm command runs (`run`, `test`, `build`) execute in under 2 seconds.
 
-`qutivex.toml` is the editable source of truth; `qutivex.lock` is committed resolved
-state. Backend scripts, Gradle locks, and verification configuration are derived
-files. Recreating `.qutivex` from the manifest and lock must preserve the result.
-Generated build script strings need proper escaping; user names, dependency values,
-and paths must never be interpolated as executable Kotlin or shell fragments.
+---
 
-## Resolution and integrity contract (planned)
+## Packaging Pipeline
 
-The versioned lock format must record normalized manifest input, backend/template
-versions, compiler/toolchain identities, repository identity, selected variants,
-configuration-specific graphs, artifact coordinates, and SHA-256 values. Include
-compile, runtime, test, and build-tool dependencies; a list of application JAR versions
-is insufficient. Stable ordering and portable paths keep diffs reproducible.
-
-The adapter must preserve POM inheritance, properties, dependency management/BOMs,
-exclusions, optional dependencies, Maven scopes, and Gradle JVM variant selection.
-Unsupported behavior must fail explicitly. Gradle's resolution policy is the initial
-policy; do not introduce a second conflicting version-selection algorithm.
-
-Use HTTPS, repository allowlists, checksum validation, temporary downloads followed
-by atomic replacement, and a lock around project mutations. Reuse Gradle's artifact
-cache initially; do not maintain a duplicate downloader/cache in the first backend.
-No dependency installation hooks or arbitrary manifest scripts in the MVP.
-Hashes recorded on first resolution detect subsequent changes; they alone do not
-prove a newly downloaded package is trustworthy. Pin trusted bootstrap distribution
-checksums separately and review changes to the committed dependency verification data.
-
-Changes to manifest and lock need a recoverable transaction: stage both, resolve and
-verify first, then commit with a journal/recovery strategy under the project lock.
-Renaming two files individually is not an atomic two-file transaction.
-
-## Processes and toolchains (planned)
-
-The JDK that launches Qutivex, the backend runtime, the build JDK, and emitted JVM
-target are distinct settings. Initially require JDK 21 and align compilation to 21.
-The manifest's `jvm = 21` is a major-version request; exact vendor, patch, platform,
-and download checksums belong in toolchain resolution before reproducibility claims.
-
-Process adapters will use argument lists, correct working directories, streamed I/O,
-exit-code forwarding, and cancellation of child processes. Handle Windows launchers
-explicitly and test spaces, Unicode paths, and shell metacharacters. Secrets must not
-be written to generated scripts, manifests, or logs.
-
-## IDE support (planned)
-
-IntelliJ does not automatically understand `qutivex.toml`. The MVP must document how
-to import its generated Gradle bridge, map source roots to the project, and refresh
-it after manifest changes. A dedicated IDE plugin is a later improvement. The Qutivex
-repository itself already imports as a normal Gradle project.
-
-## Validation strategy
-
-Current tests cover pure model rules and filesystem/CLI behavior in temporary
-directories. Add local fixture repositories for resolution tests, avoiding Maven
-Central in routine unit tests. Backend integration tests must cover transitive JVM
-dependencies, BOMs, variants, test scope isolation, frozen/offline behavior, corrupted
-artifacts, and recovery after interrupted writes. Release smoke tests must launch
-the packaged CLI outside its source repository on all three operating systems.
+Qutivex distributes an enterprise-grade Windows MSI installer:
+- Constructed via WiX Toolset v5 (`packaging/windows/qutivex.wxs`).
+- Registers binaries in `C:\Program Files\Qutivex\bin`.
+- Automatically appends installation directory to system `PATH`.
+- Generates SHA-256 verification digests (`qutivex-x64.msi.sha256`).

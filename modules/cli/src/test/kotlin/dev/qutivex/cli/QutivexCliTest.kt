@@ -31,8 +31,11 @@ class QutivexCliTest {
             assertTrue(result.stdout.contains("run [-- args]"))
             assertTrue(result.stdout.contains("test"))
             assertTrue(result.stdout.contains("build"))
+            assertTrue(result.stdout.contains("add <dep>"))
+            assertTrue(result.stdout.contains("remove <dep>"))
+            assertTrue(result.stdout.contains("list"))
+            assertTrue(result.stdout.contains("install"))
             assertTrue(result.stdout.contains("doctor"))
-            assertTrue(result.stdout.contains("Planned commands (not implemented yet): add, install."))
             assertEquals("", result.stderr)
             assertFalse(Files.exists(missingDirectory))
         }
@@ -110,6 +113,54 @@ class QutivexCliTest {
     }
 
     @Test
+    fun `add help has no filesystem effects`() {
+        for (flag in listOf("--help", "-h")) {
+            val result = execute(listOf("add", flag))
+
+            assertEquals(0, result.exitCode)
+            assertTrue(result.stdout.contains("Usage: qutivex add"))
+            assertEquals("", result.stderr)
+            Files.list(temporaryDirectory).use { assertEquals(0L, it.count()) }
+        }
+    }
+
+    @Test
+    fun `remove help has no filesystem effects`() {
+        for (flag in listOf("--help", "-h")) {
+            val result = execute(listOf("remove", flag))
+
+            assertEquals(0, result.exitCode)
+            assertTrue(result.stdout.contains("Usage: qutivex remove"))
+            assertEquals("", result.stderr)
+            Files.list(temporaryDirectory).use { assertEquals(0L, it.count()) }
+        }
+    }
+
+    @Test
+    fun `list help has no filesystem effects`() {
+        for (flag in listOf("--help", "-h")) {
+            val result = execute(listOf("list", flag))
+
+            assertEquals(0, result.exitCode)
+            assertTrue(result.stdout.contains("Usage: qutivex list"))
+            assertEquals("", result.stderr)
+            Files.list(temporaryDirectory).use { assertEquals(0L, it.count()) }
+        }
+    }
+
+    @Test
+    fun `install help has no filesystem effects`() {
+        for (flag in listOf("--help", "-h")) {
+            val result = execute(listOf("install", flag))
+
+            assertEquals(0, result.exitCode)
+            assertTrue(result.stdout.contains("Usage: qutivex install"))
+            assertEquals("", result.stderr)
+            Files.list(temporaryDirectory).use { assertEquals(0L, it.count()) }
+        }
+    }
+
+    @Test
     fun `version comes from build metadata without requiring a project`() {
         val metadata = Properties()
         val resource = requireNotNull(javaClass.getResourceAsStream("/qutivex-version.properties"))
@@ -125,6 +176,16 @@ class QutivexCliTest {
             assertEquals("", result.stderr)
             assertFalse(Files.exists(missingDirectory))
         }
+    }
+
+    @Test
+    fun `formatDuration formats millis, seconds, and minutes correctly`() {
+        assertEquals("0ms", QutivexCli.formatDuration(0))
+        assertEquals("42ms", QutivexCli.formatDuration(42))
+        assertEquals("999ms", QutivexCli.formatDuration(999))
+        assertEquals("1.00s", QutivexCli.formatDuration(1000))
+        assertEquals("1.50s", QutivexCli.formatDuration(1500))
+        assertEquals("1m 5.0s", QutivexCli.formatDuration(65000))
     }
 
     @Test
@@ -215,6 +276,14 @@ class QutivexCliTest {
             listOf("test", "--unknown"),
             listOf("build", "extra"),
             listOf("build", "--unknown"),
+            listOf("add", "--unknown"),
+            listOf("add", "group:artifact:1.0", "extra"),
+            listOf("remove", "--unknown"),
+            listOf("remove", "group:artifact", "extra"),
+            listOf("list", "extra"),
+            listOf("list", "--unknown"),
+            listOf("install", "extra"),
+            listOf("install", "--unknown"),
             listOf("doctor", "extra"),
             listOf("doctor", "--unknown"),
         )
@@ -229,20 +298,19 @@ class QutivexCliTest {
     }
 
     @Test
-    fun `planned commands return failure with an honest explanation`() {
-        for (command in listOf("add", "install")) {
+    fun `add and remove require dependency coordinates`() {
+        for (command in listOf("add", "remove")) {
             val result = execute(listOf(command))
 
             assertEquals(2, result.exitCode, command)
             assertEquals("", result.stdout)
-            assertTrue(result.stderr.contains("not implemented yet"))
+            assertTrue(result.stderr.contains("Missing dependency coordinate"))
             Files.list(temporaryDirectory).use { assertEquals(0L, it.count()) }
         }
     }
 
     @Test
     fun `run delegates forwarded arguments to ProjectExecutor`() {
-        // Initialize project first
         execute(listOf("init"), temporaryDirectory)
 
         val recordingRunner = RecordingRunner()

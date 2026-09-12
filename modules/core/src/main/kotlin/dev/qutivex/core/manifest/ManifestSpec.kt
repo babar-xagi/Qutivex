@@ -33,6 +33,57 @@ data class ManifestSpec(
         mainClass = application.mainClass,
     )
 
+    fun withDependency(coordinate: String, version: String): ManifestSpec {
+        val updated = dependencies.toMutableMap()
+        updated[coordinate] = version
+        return copy(dependencies = updated)
+    }
+
+    fun withoutDependency(coordinate: String): ManifestSpec {
+        val updated = dependencies.toMutableMap()
+        updated.remove(coordinate)
+        return copy(dependencies = updated)
+    }
+
+    fun withTestDependency(coordinate: String, version: String): ManifestSpec {
+        val updated = testDependencies.toMutableMap()
+        updated[coordinate] = version
+        return copy(testDependencies = updated)
+    }
+
+    fun withoutTestDependency(coordinate: String): ManifestSpec {
+        val updated = testDependencies.toMutableMap()
+        updated.remove(coordinate)
+        return copy(testDependencies = updated)
+    }
+
+    fun toToml(): String = buildString {
+        append("schema-version = $schemaVersion\n\n")
+        append("[project]\n")
+        append("name = \"${project.name}\"\n")
+        append("version = \"${project.version}\"\n\n")
+        append("[toolchain]\n")
+        append("kotlin = \"${toolchain.kotlin}\"\n")
+        append("jvm = ${toolchain.jvm}\n\n")
+        append("[application]\n")
+        append("main-class = \"${application.mainClass}\"\n\n")
+        append("[dependencies]\n")
+        for ((coord, ver) in dependencies.toSortedMap()) {
+            append("\"$coord\" = \"$ver\"\n")
+        }
+        append("\n[test-dependencies]\n")
+        for ((coord, ver) in testDependencies.toSortedMap()) {
+            append("\"$coord\" = \"$ver\"\n")
+        }
+        append("\n")
+    }
+
+    fun computeHash(): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val bytes = toToml().toByteArray(java.nio.charset.StandardCharsets.UTF_8)
+        return md.digest(bytes).joinToString("") { "%02x".format(it) }
+    }
+
     companion object {
         private val COORDINATE_PATTERN = Regex("^[a-zA-Z0-9_.-]+:[a-zA-Z0-9_.-]+$")
 

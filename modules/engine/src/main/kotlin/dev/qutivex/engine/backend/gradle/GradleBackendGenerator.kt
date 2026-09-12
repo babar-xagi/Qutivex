@@ -21,11 +21,17 @@ class GradleBackendGenerator {
         val buildContent = generateBuild(manifest)
         writeOrUpdate(gradleDir.resolve("build.gradle.kts"), buildContent)
 
-        // 3. gradle.properties
-        val propertiesContent = "org.gradle.jvmargs=-Xmx512m\n"
+        // 3. gradle.properties (tuned for maximum build/run/test performance)
+        val propertiesContent = """
+            org.gradle.jvmargs=-Xmx1024m -XX:+UseParallelGC -Dfile.encoding=UTF-8
+            org.gradle.daemon=true
+            org.gradle.parallel=true
+            org.gradle.caching=true
+            org.gradle.vfs.watch=true
+        """.trimIndent() + "\n"
         writeOrUpdate(gradleDir.resolve("gradle.properties"), propertiesContent)
 
-        // 4. Wrapper files
+        // 4. Wrapper files (only copy if missing)
         copyWrapperFiles(gradleDir)
 
         return gradleDir
@@ -110,19 +116,26 @@ class GradleBackendGenerator {
     }
 
     private fun copyWrapperFiles(gradleDir: Path) {
-        copyResource("/dev/qutivex/engine/backend/gradle/gradlew", gradleDir.resolve("gradlew"), executable = true)
-        copyResource("/dev/qutivex/engine/backend/gradle/gradlew.bat", gradleDir.resolve("gradlew.bat"))
+        copyResourceIfNotExists("/dev/qutivex/engine/backend/gradle/gradlew", gradleDir.resolve("gradlew"), executable = true)
+        copyResourceIfNotExists("/dev/qutivex/engine/backend/gradle/gradlew.bat", gradleDir.resolve("gradlew.bat"))
 
         val wrapperDir = gradleDir.resolve("gradle/wrapper")
         Files.createDirectories(wrapperDir)
-        copyResource(
+        copyResourceIfNotExists(
             "/dev/qutivex/engine/backend/gradle/wrapper/gradle-wrapper.jar",
             wrapperDir.resolve("gradle-wrapper.jar"),
         )
-        copyResource(
+        copyResourceIfNotExists(
             "/dev/qutivex/engine/backend/gradle/wrapper/gradle-wrapper.properties",
             wrapperDir.resolve("gradle-wrapper.properties"),
         )
+    }
+
+    private fun copyResourceIfNotExists(resourcePath: String, target: Path, executable: Boolean = false) {
+        if (Files.exists(target) && Files.size(target) > 0) {
+            return
+        }
+        copyResource(resourcePath, target, executable)
     }
 
     private fun copyResource(resourcePath: String, target: Path, executable: Boolean = false) {

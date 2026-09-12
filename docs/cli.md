@@ -1,60 +1,212 @@
-# CLI specification
+# CLI Specification & User Guide
 
-## Available commands
+Qutivex provides a modern, high-speed CLI for Kotlin/JVM projects, combining project creation, execution, testing, dependency management, and distribution packaging.
 
-| Command | Behavior |
-| --- | --- |
-| `qutivex`, `qutivex --help`, `qutivex -h`, `qutivex help` | Show help without changing files |
-| `qutivex --version`, `qutivex -V` | Show the version embedded by the build |
-| `qutivex init [directory]` | Create a console project in a new or empty directory; default is current directory |
-| `qutivex init --help` | Show initialization help |
-| `qutivex run [-- arguments...]` | Compile and run configured main, forwarding arguments after `--` |
-| `qutivex run --help` | Show run help |
-| `qutivex test` | Compile and run project tests |
-| `qutivex test --help` | Show test help |
-| `qutivex build` | Compile and produce application distributions under `build/` |
-| `qutivex build --help` | Show build help |
-| `qutivex doctor` | Inspect local environment, Java installation, and build dependencies |
-| `qutivex doctor --help` | Show doctor help |
+---
 
-Quote directory paths containing spaces. A `--` after `init` ends option parsing;
-it does not bypass project-name validation. Names are normalized to lowercase, with
-whitespace replaced by hyphens. Metadata names must start with an ASCII letter,
-contain only letters, digits, hyphens or underscores, be at most 64 characters, and
-avoid Windows device names. Nonempty directories and existing files are rejected.
+## Command Overview
 
-The CLI does not prompt, contact repositories, or write a lockfile during init.
-If initialization fails during writing, partial files are left for inspection.
-Standard output contains successful command results; standard error contains errors.
-Exit codes: `0` success, `2` invalid command/arguments, `1` an operation failed.
-Unknown commands and unimplemented commands return nonzero.
+| Command | Syntax | Description |
+| :--- | :--- | :--- |
+| `init` | `qutivex init [directory]` | Initialize a new project in the specified or current directory |
+| `run` | `qutivex run [-- arguments...]` | Compile and run the project entry point, forwarding trailing arguments |
+| `test` | `qutivex test` | Compile and execute unit & integration tests |
+| `build` | `qutivex build` | Compile and produce release distributions under `build/distributions/` |
+| `add` | `qutivex add <coordinate> [-t\|--test]` | Add a dependency to `qutivex.toml` and sync `qutivex.lock` |
+| `remove` | `qutivex remove <coordinate> [-t\|--test]` | Remove a dependency from `qutivex.toml` and update `qutivex.lock` |
+| `list` | `qutivex list` | Display all project dependencies and test dependencies |
+| `install` | `qutivex install [--frozen] [--offline]` | Download and resolve dependencies; reconcile `qutivex.lock` |
+| `doctor` | `qutivex doctor` | Inspect environment, Java 21 runtime, and Maven Central connectivity |
+| `help` | `qutivex --help`, `qutivex <cmd> --help` | Display general help or command-specific options |
+| `version` | `qutivex --version`, `qutivex -V` | Print current Qutivex version |
 
-## MVP contract (planned, unavailable today)
+---
 
-Use one command for each operation. `install` is the canonical synchronization
-command; there is no separate `sync` or `new` alias in the initial interface.
+## Detailed Command Specifications
 
-| Command | Required behavior |
-| --- | --- |
-| `add group:artifact@version [--test]` | Add an exact release requirement, resolve and install; commit manifest and lock only after success |
-| `remove group:artifact [--test]` | Remove from selected dependency group and synchronize remaining dependencies transactionally |
-| `install` | Preserve a matching lock; resolve when missing/stale; materialize runtime and test dependencies |
-| `install --frozen` | Require a matching lock; reject missing/stale state; never rewrite manifest/lock |
-| `install --offline` | Use only local artifacts and metadata; fail with missing cache details; make no network requests |
-| `list` | Display declared dependencies by scope |
-| `tree` | Display locked transitive dependencies, configurations, and selection reasons |
-| `update [group:artifact@version]` | Explicitly change exact direct requirements; with no argument refresh permitted transitive selections, retain exact direct pins |
+### `qutivex init`
 
-`--frozen` and `--offline` will also apply to run/test/build and may be combined.
-Frozen may download missing artifacts using committed integrity data; offline must
-not download. New upstream releases alone do not invalidate a matching lock.
-The Qutivex meaning of `--frozen` is its own strict contract; it is not an assertion
-that every similarly named flag in Bun or uv behaves identically.
+Creates a new Kotlin/JVM project.
 
-Initially reject unversioned additions, aliases, snapshots, ranges, and caret syntax
-with actionable errors. Phase 4 adds `add group:artifact` with tested stable-release
-selection: display the chosen version and save an exact pin. Ambiguous short aliases
-and broader package discovery come later.
+```text
+Usage: qutivex init [directory]
+       qutivex init -- <directory>
+```
 
-Global color/quiet/verbose/JSON settings and stable machine-readable errors are later
-features. No placeholder flag should report success before its semantics exist.
+- If `[directory]` is omitted, the project is created in the current working directory.
+- Refuses to overwrite any existing files or non-empty directories.
+- Validates the project name against naming conventions (lowercase letters, numbers, hyphens, maximum 64 characters).
+
+**Example:**
+```powershell
+qutivex init my-service
+cd my-service
+```
+
+---
+
+### `qutivex run`
+
+Compiles and executes the application entry point specified in `qutivex.toml` (`application.main-class`).
+
+```text
+Usage: qutivex run [-- <arguments...>]
+```
+
+- Any arguments after `--` are passed verbatim to the application's `main(args: Array<String>)` function.
+- Leverages Gradle daemon reuse and local build caching for sub-second re-executions.
+- Displays total elapsed execution time (`✨ Finished in 1.25s`).
+
+**Examples:**
+```powershell
+qutivex run
+qutivex run -- --port 8080 --profile dev
+```
+
+---
+
+### `qutivex test`
+
+Compiles test sources and runs the test suite using JUnit Platform.
+
+```text
+Usage: qutivex test
+```
+
+- Logs test outcomes (`PASSED`, `SKIPPED`, `FAILED`).
+- Reports total test elapsed duration (`🧪 Tests passed in 850ms`).
+- Returns exit code `0` on success, `1` if any test fails.
+
+**Example:**
+```powershell
+qutivex test
+```
+
+---
+
+### `qutivex build`
+
+Produces release application distributions.
+
+```text
+Usage: qutivex build
+```
+
+- Generates standalone distribution ZIP and TAR archives in `build/distributions/`.
+- Reports duration (`📦 Build completed in 1.10s`).
+
+**Example:**
+```powershell
+qutivex build
+```
+
+---
+
+### `qutivex add`
+
+Adds a Maven dependency to `qutivex.toml` and updates `qutivex.lock`.
+
+```text
+Usage: qutivex add <coordinate> [--test]
+       qutivex add <coordinate> -t
+```
+
+- Supports standard colon syntax: `group:artifact:version`
+- Supports npm-style `@` syntax: `group:artifact@version`
+- `--test` / `-t`: Adds the dependency to `[test-dependencies]` instead of `[dependencies]`.
+- **Atomic Safety**: Verifies that the dependency can be resolved against Maven Central before persisting. If resolution fails, changes are automatically rolled back.
+
+**Examples:**
+```powershell
+qutivex add org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2
+qutivex add io.ktor:ktor-client-core@3.0.0
+qutivex add org.junit.jupiter:junit-jupiter:5.10.2 --test
+```
+
+---
+
+### `qutivex remove`
+
+Removes a dependency from `qutivex.toml` and regenerates `qutivex.lock`.
+
+```text
+Usage: qutivex remove <coordinate> [--test]
+       qutivex remove <coordinate> -t
+```
+
+- Accepts `group:artifact` or `group:artifact:version`.
+- `--test` / `-t`: Specifically removes from `[test-dependencies]`.
+
+**Examples:**
+```powershell
+qutivex remove org.jetbrains.kotlinx:kotlinx-coroutines-core
+qutivex remove org.junit.jupiter:junit-jupiter --test
+```
+
+---
+
+### `qutivex list`
+
+Inspects and lists all declared dependencies in `qutivex.toml`.
+
+```text
+Usage: qutivex list
+```
+
+**Output Example:**
+```text
+📋 Dependencies for my-service (0.1.0):
+
+📦 [dependencies]
+  • io.ktor:ktor-client-core:3.0.0
+  • org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2
+
+🧪 [test-dependencies]
+  • org.junit.jupiter:junit-jupiter:5.10.2
+
+⏱️ Checked in 14ms
+```
+
+---
+
+### `qutivex install`
+
+Downloads and reconciles project dependencies with `qutivex.lock`.
+
+```text
+Usage: qutivex install [--frozen] [--offline]
+```
+
+- `--frozen`: Enforces strict lockfile compliance (ideal for CI/CD pipelines). If `qutivex.lock` is missing or its `manifest-hash` does not match `qutivex.toml`, the command fails with an actionable error.
+- `--offline`: Resolves dependencies exclusively using the local cache without network queries.
+
+**Examples:**
+```powershell
+qutivex install
+qutivex install --frozen
+qutivex install --offline
+```
+
+---
+
+### `qutivex doctor`
+
+Inspects the local runtime environment to verify prerequisites.
+
+```text
+Usage: qutivex doctor
+```
+
+- Verifies that JDK 21 is available (via `JAVA_HOME` or `PATH`).
+- Checks Maven Central reachability.
+- Displays platform and architecture information.
+
+---
+
+## Exit Codes
+
+| Exit Code | Meaning |
+| :---: | :--- |
+| `0` | Success |
+| `1` | Operational failure (compilation failure, test failure, resolution error, missing manifest) |
+| `2` | Usage / syntax error (invalid arguments, unknown options, missing parameters) |

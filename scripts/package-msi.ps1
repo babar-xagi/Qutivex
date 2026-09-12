@@ -26,10 +26,10 @@ if ($env:DOTNET_ROOT -and (Test-Path $env:DOTNET_ROOT)) {
 # 1. Determine version
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $gradleProps = Get-Content "$rootDir/build.gradle.kts" -Raw
-    if ($gradleProps -match 'version\s*=\s*"([^"]+)"') {
-        $Version = $matches[1]
+    if ($gradleProps -match 'version\s*=\s*(?:providers\.gradleProperty\("qutivexVersion"\)\.getOrElse\("([^"]+)"\)|"([^"]+)")') {
+        $Version = if ($matches[1]) { $matches[1] } else { $matches[2] }
     } else {
-        $Version = "0.1.0-dev"
+        $Version = "0.2.0-dev"
     }
 }
 Write-Host "Project Version: $Version" -ForegroundColor Green
