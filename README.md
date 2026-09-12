@@ -138,9 +138,11 @@ qutivex build
 
 Output:
 ```text
-📦 Build completed in 1.15s
+📦 Building...
+✔ Packaged my-app-0.1.0.jar
+✨ Build completed in 1.15s
 ```
-Your compiled application distribution (ZIP & TAR) is produced in `build/distributions/`.
+Your compiled application standalone executable JAR is produced in `build/libs/<name>-<version>.jar` and can be executed with `java -jar build/libs/<name>-<version>.jar`.
 
 ### 7. Remove Dependencies
 
@@ -218,7 +220,7 @@ Qutivex is tuned for instant developer feedback and is 100% Gradle-free:
 | `qutivex init [directory]` | Create a new Kotlin/JVM project (default: current directory) |
 | `qutivex run [-- args]` | Compile and run the application entry point with optional arguments |
 | `qutivex test` | Compile and run unit & integration tests |
-| `qutivex build` | Build release application distributions under `build/distributions/` |
+| `qutivex build` | Build standalone executable application JAR under `build/libs/` |
 | `qutivex add <coordinate> [-t\|--test]` | Add a dependency and sync lockfile via native resolver (`group:artifact:version` or `@version`) |
 | `qutivex remove <coordinate> [-t\|--test]` | Remove a dependency from `qutivex.toml` and update lockfile natively |
 | `qutivex update [coordinate] [--check]` | Self-update Qutivex CLI (`qutivex update [--check]`) or update a dependency (`qutivex update <coord>`) |

@@ -37,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Performance Benchmarks & Comprehensive Verification**:
     - Verified complete zero-Gradle execution with corrupted Gradle wrappers (`Phase4IntegrationTest`).
     - Sub-second incremental builds and test executions.
+  - **JUnit Platform Alignment & Classpath Conflict Purging**:
+    - Bundled and locked test toolchains dynamically aligned to JUnit Jupiter `5.12.2` and JUnit Platform `1.12.2`.
+    - Automatically purges conflicting or legacy JUnit platform engines, launchers, and commons to prevent `OutputDirectoryProvider not available` runtime failures.
+    - Classpath deduplication ensures only compatible launcher components are dispatched to the isolated test worker process.
+  - **Windows Console & Unicode Terminal Enhancements**:
+    - Upgraded standard CLI output handling using Win32 `WriteConsoleW` via `System.console()?.writer()`.
+    - Eliminates UTF-8 emoji and glyph corruption across Windows PowerShell, CMD, and Windows Terminal without requiring external script wrappers or triggering PowerShell `ExecutionPolicy` restrictions.
 
 ---
 
