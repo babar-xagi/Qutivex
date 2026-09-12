@@ -51,19 +51,28 @@ jobs:
           if ($tagVersion -match '^v?(\d+\.\d+\.\d+.*)') {
               $tagVersion = $matches[1]
           } else {
-              $tagVersion = "0.1.0"
+              $tagVersion = "0.3.5"
           }
-          Write-Host "Packaging Windows MSI for version $tagVersion..."
+          Write-Host "Packaging Qutivex for version $tagVersion..."
           $env:QUTIVEX_VERSION = $tagVersion
           .\scripts\package-msi.ps1 -Version $tagVersion
-          .\gradlew.bat packageDistributionArchives -PqutivexVersion=$tagVersion
+          .\gradlew.bat packageDistributionArchives "-PqutivexVersion=$tagVersion"
+          Remove-Item -Force -ErrorAction SilentlyContinue "dist/*tagVersion*"
 
       - name: Verify Release Artifacts
         shell: pwsh
         run: |
+          $tagVersion = "${{ github.ref_name }}"
+          if ($tagVersion -match '^v?(\d+\.\d+\.\d+.*)') {
+              $tagVersion = $matches[1]
+          } else {
+              $tagVersion = "0.3.5"
+          }
           if (-not (Test-Path "dist/qutivex-x64.msi")) { throw "Missing dist/qutivex-x64.msi" }
           if (-not (Test-Path "dist/qutivex-x64.msi.sha256")) { throw "Missing dist/qutivex-x64.msi.sha256" }
-          Write-Host "Artifacts verified:"
+          if (-not (Test-Path "dist/qutivex-$tagVersion.tar.gz")) { throw "Missing dist/qutivex-$tagVersion.tar.gz" }
+          if (-not (Test-Path "dist/qutivex-$tagVersion.zip")) { throw "Missing dist/qutivex-$tagVersion.zip" }
+          Write-Host "Artifacts verified successfully:"
           Get-Item dist/* | Select-Object Name, Length
 
       - name: Upload Release Artifacts
@@ -73,8 +82,8 @@ jobs:
           path: |
             dist/qutivex-x64.msi
             dist/qutivex-x64.msi.sha256
-            dist/*.tar.gz
-            dist/*.zip
+            dist/qutivex-*.tar.gz
+            dist/qutivex-*.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -83,8 +92,8 @@ jobs:
           files: |
             dist/qutivex-x64.msi
             dist/qutivex-x64.msi.sha256
-            dist/*.tar.gz
-            dist/*.zip
+            dist/qutivex-*.tar.gz
+            dist/qutivex-*.zip
           draft: false
           prerelease: false
           generate_release_notes: true

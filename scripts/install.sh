@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-QUTIVEX_VERSION="${QUTIVEX_VERSION:-0.2.2}"
+QUTIVEX_VERSION="${QUTIVEX_VERSION:-0.3.5}"
 INSTALL_DIR="${QUTIVEX_INSTALL_DIR:-$HOME/.qutivex}"
 BIN_DIR="$INSTALL_DIR/bin"
 REPO="babar-xagi/Qutivex"

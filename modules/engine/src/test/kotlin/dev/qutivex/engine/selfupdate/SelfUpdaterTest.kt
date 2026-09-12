@@ -87,7 +87,12 @@ class SelfUpdaterTest {
             stderr = PrintWriter(err),
             installerLauncher = { path ->
                 launchedPath = path
-                ProcessBuilder("cmd.exe", "/c", "echo ok").start()
+                val isWin = System.getProperty("os.name")?.lowercase()?.contains("windows") == true
+                if (isWin) {
+                    ProcessBuilder("cmd.exe", "/c", "echo ok").start()
+                } else {
+                    ProcessBuilder("sh", "-c", "echo ok").start()
+                }
             },
         )
 
