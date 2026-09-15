@@ -13,7 +13,7 @@ data class ProjectSpec(
     init {
         require(NAME_PATTERN.matches(name)) {
             "Project name must start with a lowercase letter and contain only lowercase ASCII " +
-                "letters, digits, hyphens, or underscores (1–64 characters): '$name'."
+                "letters, digits, or hyphens (1–64 characters): '$name'."
         }
         require(name !in WINDOWS_DEVICE_NAMES) {
             "Project name '$name' is reserved on Windows. Choose another name."
@@ -21,13 +21,31 @@ data class ProjectSpec(
     }
 
     companion object {
-        private val NAME_PATTERN = Regex("[a-z][a-z0-9_-]{0,63}")
-        private val WHITESPACE = Regex("\\s+")
+        private val NAME_PATTERN = Regex("[a-z](?:[a-z0-9-]{0,62}[a-z0-9])?")
+        private val SEPARATORS = Regex("[\\s_]+")
+        private val REPEATED_HYPHENS = Regex("-+")
         private val WINDOWS_DEVICE_NAMES =
             setOf("con", "prn", "aux", "nul") + (1..9).flatMap { listOf("com$it", "lpt$it") }
 
         /** Normalizes a directory name; [ProjectSpec] validates the result. */
-        fun normalizeName(directoryName: String): String =
-            directoryName.trim().lowercase(Locale.ROOT).replace(WHITESPACE, "-")
+        fun normalizeName(directoryName: String): String {
+            val trimmed = directoryName.trim()
+            require(trimmed.isNotEmpty()) {
+                "Project directory name must not be blank."
+            }
+            val normalized = trimmed
+                .lowercase(Locale.ROOT)
+                .replace(SEPARATORS, "-")
+                .replace(REPEATED_HYPHENS, "-")
+
+            require(NAME_PATTERN.matches(normalized)) {
+                "Project name must start with a lowercase letter and contain only lowercase ASCII " +
+                    "letters, digits, or hyphens (1–64 characters): '$normalized'."
+            }
+            require(normalized !in WINDOWS_DEVICE_NAMES) {
+                "Project name '$normalized' is reserved on Windows. Choose another name."
+            }
+            return normalized
+        }
     }
 }

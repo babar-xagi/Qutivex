@@ -96,16 +96,13 @@ class ProjectInitializer {
     private fun readme(project: ProjectSpec): String = """
         # ${project.name}
 
-        A Kotlin/JVM project scaffold created with Qutivex.
+        A Kotlin/JVM project created with Qutivex.
 
         - Project and dependency configuration: `qutivex.toml`
         - Application entry point: `src/main/kotlin/Main.kt`
         - Test sources: `src/test/kotlin/`
-        - Requested toolchain: Kotlin ${project.kotlinVersion}, JVM ${project.jvmVersion}
+        - Toolchain: Kotlin ${project.kotlinVersion}, JVM ${project.jvmVersion}
 
-        Qutivex currently supports project initialization. Dependency management and
-        the `add`, `install`, `run`, `test`, and `build` commands are planned and are not
-        implemented yet. This scaffold does not install a toolchain or generate a
-        Gradle build. It will become runnable with Qutivex as execution support lands.
+        Powered by the native Kotlin/JVM build engine.
     """.trimIndent() + "\n"
 }

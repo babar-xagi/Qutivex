@@ -33,7 +33,7 @@ class ProjectInitializerTest {
         assertTrue(Files.readString(target.resolve("src/main/kotlin/Main.kt")).contains("Hello from my-app!"))
         assertTrue(Files.isDirectory(target.resolve("src/test/kotlin")))
         assertTrue(Files.readString(target.resolve(".gitignore")).contains(".qutivex/"))
-        assertTrue(Files.readString(target.resolve("README.md")).contains("not\nimplemented yet"))
+        assertTrue(Files.readString(target.resolve("README.md")).contains("native Kotlin/JVM build engine"))
         assertFalse(Files.exists(target.resolve("build.gradle.kts")))
     }
 

@@ -14,7 +14,7 @@ runtime requirements, and release workflow for Qutivex.
 | Installation directory | `C:\Program Files\Qutivex\` |
 | PATH integration | `C:\Program Files\Qutivex\bin\` added to system `PATH` |
 | External runtime requirement | JDK 21 |
-| Build tools required by user | None (Gradle and Kotlin compiler are managed internally) |
+| Build tools required by user | None (Native Kotlin compiler and JDK toolchains are managed internally) |
 
 ## Installation Layout
 
@@ -39,7 +39,7 @@ The MSI packages configure the system `PATH` environment variable:
 
 ## Runtime Requirements & JDK 21 Discovery
 
-Qutivex projects are compiled and executed using a managed Gradle backend running on JDK 21.
+Qutivex projects are compiled and executed using the native Kotlin/JVM build engine running on JDK 21.
 
 When `qutivex` is launched:
 1. It verifies that `JAVA_HOME` or a valid `java.exe` is available.

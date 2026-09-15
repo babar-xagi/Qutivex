@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Preserved 100% backward compatibility with Phase 4 native build engine.
 
 ### Fixed
+- **Phase 1 CLI Contract Lock & Standardization**:
+  - Enforced canonical project-name contract in `ProjectSpec`: deterministic lowercase normalization to `[a-z0-9-]` (max 64 chars), spaces and underscores converted to hyphens, repeated separators collapsed, and unnormalizable names rejected.
+  - Replaced legacy Gradle phrasing in CLI help descriptions (`run`, `test`, `build`) and `init` templates with native build engine terminology.
+  - Hardened toolchain visibility rules: displays `(active)` inside initialized projects and `(default)` outside projects, leaving non-active installed versions without misleading tags.
+  - Standardized CLI exit codes (0 for success/help, 1 for runtime/operational failures, 2 for invalid syntax/arguments), including manifest checks in `env clean` and strict invalid name rejections in `init`.
+  - Added comprehensive test coverage for project initialization edge cases, name normalization, and toolchain list visibility.
 - Hardened `toolchain list` and `toolchain update` commands with optional `[type]` argument filtering (`kotlin` or `jdk`) and clear validation for invalid types.
 - Enforced toolchain installation check in `toolchain use <type> <version>` to prevent setting nonexistent versions as active.
 - Added deletion guard in `toolchain remove <type> <version>` preventing accidental removal of actively configured project toolchains or global defaults.

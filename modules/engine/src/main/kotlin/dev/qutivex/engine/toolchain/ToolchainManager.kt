@@ -20,6 +20,8 @@ data class ToolchainListResult(
     val jdkToolchains: List<ToolchainInfo>,
     val activeKotlinVersion: String? = null,
     val activeJdkVersion: String? = null,
+    val defaultKotlinVersion: String? = null,
+    val defaultJdkVersion: String? = null,
 ) {
     fun render(type: ToolchainType? = null): String = buildString {
         append("Installed Toolchains:\n\n")
@@ -29,9 +31,13 @@ data class ToolchainListResult(
                 append("  (no managed Kotlin toolchains installed)\n")
             } else {
                 for (tc in kotlinToolchains) {
-                    val activeTag = if (tc.isActive) " (active)" else ""
+                    val statusTag = when {
+                        tc.isActive -> " (active)"
+                        tc.isDefault -> " (default)"
+                        else -> ""
+                    }
                     val typeTag = if (tc.isSystem) "[system]" else "[managed]"
-                    append("  • ${tc.version}$activeTag $typeTag (${tc.path})\n")
+                    append("  • ${tc.version}$statusTag $typeTag (${tc.path})\n")
                 }
             }
         }
@@ -44,9 +50,13 @@ data class ToolchainListResult(
                 append("  (no managed JDK toolchains installed)\n")
             } else {
                 for (tc in jdkToolchains) {
-                    val activeTag = if (tc.isActive) " (active)" else ""
+                    val statusTag = when {
+                        tc.isActive -> " (active)"
+                        tc.isDefault -> " (default)"
+                        else -> ""
+                    }
                     val typeTag = if (tc.isSystem) "[system]" else "[managed]"
-                    append("  • ${tc.version}$activeTag $typeTag (${tc.path})\n")
+                    append("  • ${tc.version}$statusTag $typeTag (${tc.path})\n")
                 }
             }
         }
@@ -76,14 +86,20 @@ class ToolchainManager(
             }
         }
 
-        val kotlinToolchains = scanKotlinToolchains(activeKotlin)
-        val jdkToolchains = scanJdkToolchains(activeJdk)
+        val config = getOrCreateToolchainConfig()
+        val defaultKotlin = config.getProperty("default.kotlin")
+        val defaultJdk = config.getProperty("default.jdk")
+
+        val kotlinToolchains = scanKotlinToolchains(activeKotlin, defaultKotlin)
+        val jdkToolchains = scanJdkToolchains(activeJdk, defaultJdk)
 
         return ToolchainListResult(
             kotlinToolchains = kotlinToolchains,
             jdkToolchains = jdkToolchains,
             activeKotlinVersion = activeKotlin,
             activeJdkVersion = activeJdk,
+            defaultKotlinVersion = defaultKotlin,
+            defaultJdkVersion = defaultJdk,
         )
     }
 
@@ -405,25 +421,25 @@ class ToolchainManager(
         return ToolchainResolution(kotlin = kotlinInfo, jdk = jdkInfo)
     }
 
-    private fun scanKotlinToolchains(activeVersion: String?): List<ToolchainInfo> {
+    private fun scanKotlinToolchains(activeVersion: String?, defaultVersion: String? = null): List<ToolchainInfo> {
         if (!Files.exists(kotlinDir)) return emptyList()
         val list = mutableListOf<ToolchainInfo>()
         Files.list(kotlinDir).use { stream ->
             stream.filter { Files.isDirectory(it) }.forEach { dir ->
                 val ver = dir.fileName.toString()
-                list.add(loadKotlinInfo(ver, dir, ver == activeVersion))
+                list.add(loadKotlinInfo(ver, dir, isActive = (ver == activeVersion), isDefault = (ver == defaultVersion)))
             }
         }
         return list.sortedBy { it.version }
     }
 
-    private fun scanJdkToolchains(activeVersion: String?): List<ToolchainInfo> {
+    private fun scanJdkToolchains(activeVersion: String?, defaultVersion: String? = null): List<ToolchainInfo> {
         val list = mutableListOf<ToolchainInfo>()
         if (Files.exists(jdkDir)) {
             Files.list(jdkDir).use { stream ->
                 stream.filter { Files.isDirectory(it) }.forEach { dir ->
                     val ver = dir.fileName.toString()
-                    list.add(loadJdkInfo(ver, dir, ver == activeVersion))
+                    list.add(loadJdkInfo(ver, dir, isActive = (ver == activeVersion), isDefault = (ver == defaultVersion)))
                 }
             }
         }
@@ -440,6 +456,7 @@ class ToolchainManager(
                         path = hostJava.second,
                         isManaged = false,
                         isActive = (activeVersion == majorStr),
+                        isDefault = (defaultVersion == majorStr),
                         isSystem = true,
                         metadata = mapOf("javaHome" to hostJava.first.toString()),
                     )
@@ -450,18 +467,19 @@ class ToolchainManager(
         return list.sortedBy { it.version }
     }
 
-    private fun loadKotlinInfo(version: String, dir: Path, isActive: Boolean): ToolchainInfo {
+    private fun loadKotlinInfo(version: String, dir: Path, isActive: Boolean, isDefault: Boolean = false): ToolchainInfo {
         return ToolchainInfo(
             type = ToolchainType.KOTLIN,
             version = version,
             path = dir,
             isManaged = true,
             isActive = isActive,
+            isDefault = isDefault,
             isSystem = false,
         )
     }
 
-    private fun loadJdkInfo(version: String, dir: Path, isActive: Boolean): ToolchainInfo {
+    private fun loadJdkInfo(version: String, dir: Path, isActive: Boolean, isDefault: Boolean = false): ToolchainInfo {
         val propFile = dir.resolve("toolchain.properties")
         var javaPath = dir.resolve(if (isWindows()) "bin/java.exe" else "bin/java")
         var isSys = false
@@ -487,6 +505,7 @@ class ToolchainManager(
             path = javaPath,
             isManaged = true,
             isActive = isActive,
+            isDefault = isDefault,
             isSystem = isSys,
             metadata = meta,
         )

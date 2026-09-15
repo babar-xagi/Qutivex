@@ -882,6 +882,8 @@ class QutivexCli(
 
             Create a Kotlin/JVM project in an empty or new directory.
             The directory defaults to the current working directory.
+            Project names are normalized deterministically (lowercase, spaces and
+            underscores converted to hyphens, max 64 characters [a-z0-9-]).
             Existing project files are never overwritten.
 
             Options:
@@ -891,6 +893,8 @@ class QutivexCli(
             Examples:
               qutivex init hello
               qutivex init "my app"
+              qutivex init "UPPERCASE"
+              qutivex init "bad_name"
               qutivex init -- hello
         """.trimIndent()
 
@@ -901,7 +905,7 @@ class QutivexCli(
             Arguments after '--' are forwarded to the application.
 
             Options:
-              -v, --verbose     Show detailed Gradle execution logs
+              -v, --verbose     Show detailed native build and execution diagnostics
               -h, --help        Show this help
 
             Examples:
@@ -917,7 +921,7 @@ class QutivexCli(
             Compile and run project tests.
 
             Options:
-              -v, --verbose     Show complete Gradle test output and tasks
+              -v, --verbose     Show detailed native compilation and test-runner diagnostics
               -h, --help        Show this help
         """.trimIndent()
 
@@ -927,7 +931,7 @@ class QutivexCli(
             Compile and produce application distributions under build/.
 
             Options:
-              -v, --verbose     Show complete Gradle build output and tasks
+              -v, --verbose     Show detailed native build and packaging diagnostics
               -h, --help        Show this help
         """.trimIndent()
 

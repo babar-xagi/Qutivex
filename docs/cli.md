@@ -37,7 +37,26 @@ Usage: qutivex init [directory]
 
 - If `[directory]` is omitted, the project is created in the current working directory.
 - Refuses to overwrite any existing files or non-empty directories.
-- Validates the project name against naming conventions (lowercase letters, numbers, hyphens, maximum 64 characters).
+- **Deterministic Name Normalization**: The project name in `qutivex.toml` is deterministically normalized from the directory name:
+  - Directory names may contain spaces, uppercase letters, and underscores.
+  - The generated project name is converted to lowercase.
+  - Spaces and underscores are normalized to hyphens (`-`).
+  - Repeated separators (e.g. `--`, `__`) are normalized to a single hyphen.
+  - Final project name must match `[a-z0-9-]` (1 to 64 characters, starting with a letter and not ending with a hyphen).
+  - Directory names that cannot produce a valid project name (e.g. invalid-only symbols, starting with a number/symbol, >64 characters) are rejected.
+  - The original directory name on disk is preserved intact.
+
+| Input Directory Name | Normalized Manifest Project Name | Result |
+| :--- | :--- | :--- |
+| `"Hello World"` | `hello-world` | Succeeded |
+| `"UPPERCASE"` | `uppercase` | Succeeded |
+| `"bad_name"` | `bad-name` | Succeeded |
+| `"hello-123"` | `hello-123` | Succeeded |
+| `"my   cool__app"` | `my-cool-app` | Succeeded |
+| `"My Special App"` | `my-special-app` (disk folder remains `"My Special App"`) | Succeeded |
+| `"a" * 64` | 64-character name | Succeeded |
+| `"a" * 65` | >64-character name | Rejected (exit code 1) |
+| `"___"`, `"--"`, `"!!!"` | invalid-only characters | Rejected (exit code 1) |
 
 **Example:**
 ```powershell
@@ -52,12 +71,12 @@ cd my-service
 Compiles and executes the application entry point specified in `qutivex.toml` (`application.main-class`) natively without Gradle.
 
 ```text
-Usage: qutivex run [--verbose] [-- <arguments...>]
+Usage: qutivex run [-v|--verbose] [-- <arguments...>]
 ```
 
 - Any arguments after `--` are passed verbatim to the application's `main(args: Array<String>)` function.
 - Uses direct in-process Kotlin compilation (`K2JVMCompiler`) and input fingerprinting for instant re-executions.
-- Pass `--verbose` to inspect compiler arguments and detailed execution steps.
+- Pass `-v` or `--verbose` to display detailed native build and execution diagnostics.
 - Displays total elapsed execution time (`⏱️ Finished in 1.25s`).
 
 **Examples:**
@@ -74,12 +93,13 @@ qutivex run -- --port 8080 --profile dev
 Compiles test sources and executes the test suite natively using the JUnit Platform Launcher without Gradle.
 
 ```text
-Usage: qutivex test [--verbose]
+Usage: qutivex test [-v|--verbose]
 ```
 
 - Clean output by default displaying test results (`PASSED`, `SKIPPED`, `FAILED`).
 - Executes in an isolated JVM process using `QutivexTestWorker`.
 - Reports total test elapsed duration (`✅ Tests passed in 850ms`).
+- Pass `-v` or `--verbose` to display detailed native compilation and test-runner diagnostics.
 - Returns exit code `0` on success, `1` if any test fails (diagnostics automatically printed to stderr).
 
 **Example:**
@@ -95,11 +115,12 @@ qutivex test --verbose
 Compiles sources, executes the test suite, and packages a standalone executable JAR in `build/libs/`.
 
 ```text
-Usage: qutivex build [--verbose]
+Usage: qutivex build [-v|--verbose]
 ```
 
 - Clean emoji output by default (`📦 Building...`, `✔ Packaged app-0.1.0.jar`, `✅ Build completed in 1.10s`).
 - Checks incremental build cache and skips compilation when inputs have not changed (`UP-TO-DATE`).
+- Pass `-v` or `--verbose` to display detailed native build and packaging diagnostics.
 - Packages compiled classes, resources, and bundled runtime dependencies into `build/libs/<name>-<version>.jar`.
 - The packaged JAR is immediately runnable with `java -jar build/libs/<name>-<version>.jar`.
 
@@ -295,31 +316,37 @@ Manages installed Kotlin and JDK toolchains centrally in `~/.qutivex/toolchains/
 Usage: qutivex toolchain <subcommand> [options]
 
 Commands:
-  list                      List installed and active toolchains
+  list [type]               List installed and active toolchains (type: kotlin or jdk)
   install <type> <version>  Install a toolchain (type: kotlin or jdk)
   use <type> <version>      Set the active toolchain for project or user
   remove <type> <version>   Remove an installed toolchain
-  update                    Check and update installed toolchains
+  update [type]             Check and update installed toolchains (type: kotlin or jdk)
 
 Options:
   -h, --help                Show this help
 ```
 
-- `qutivex toolchain list`: Displays all installed Kotlin and JDK toolchains, identifying the active versions in the current project.
+- `qutivex toolchain list [type]`: Displays installed Kotlin and JDK toolchains (supports optional `kotlin` or `jdk` filtering):
+  - Inside a project, the manifest-selected toolchain is marked with `(active)` (e.g. `• 2.4.10 (active) [managed] (...)`).
+  - Outside a project, the configured global default is marked with `(default)` (e.g. `• 2.4.10 (default) [managed] (...)`).
+  - Merely installed toolchains are displayed without status tags.
 - `qutivex toolchain install <kotlin|jdk> <version>`: Downloads, installs, and registers the requested toolchain.
-- `qutivex toolchain use <kotlin|jdk> <version>`: Updates the project `qutivex.toml` `[toolchain]` section or configures user global defaults.
-- `qutivex toolchain remove <kotlin|jdk> <version>`: Uninstalls and purges the toolchain from the local store.
-- `qutivex toolchain update`: Checks and updates metadata for installed toolchains.
+- `qutivex toolchain use <kotlin|jdk> <version>`: Updates the project `qutivex.toml` `[toolchain]` section when run inside a project, or sets the global default in `toolchains.toml` when run outside.
+- `qutivex toolchain remove <kotlin|jdk> <version>`: Uninstalls and purges the toolchain from the local store (protected against removing actively configured project toolchains or global defaults).
+- `qutivex toolchain update [type]`: Verifies and refreshes installed toolchain state.
 
 **Examples:**
 ```powershell
 qutivex toolchain list
+qutivex toolchain list kotlin
+qutivex toolchain list jdk
 qutivex toolchain install kotlin 2.4.10
 qutivex toolchain install jdk 21
 qutivex toolchain use kotlin 2.4.10
 qutivex toolchain use jdk 21
 qutivex toolchain remove kotlin 2.1.20
 qutivex toolchain update
+qutivex toolchain update kotlin
 ```
 
 ---

@@ -256,6 +256,85 @@ class QutivexCliTest {
     }
 
     @Test
+    fun `init succeeds in an existing empty directory`() {
+        val emptyDir = Files.createDirectory(temporaryDirectory.resolve("empty-app"))
+        val result = execute(listOf("init"), emptyDir)
+
+        assertEquals(0, result.exitCode, result.stderr)
+        assertTrue(Files.isRegularFile(emptyDir.resolve("qutivex.toml")))
+    }
+
+    @Test
+    fun `init accepts exactly 64-character normalized project name`() {
+        val name64 = "a".repeat(64)
+        val target = temporaryDirectory.resolve(name64)
+        val result = execute(listOf("init", name64))
+
+        assertEquals(0, result.exitCode, result.stderr)
+        val manifest = Files.readString(target.resolve("qutivex.toml"))
+        assertTrue(manifest.contains("name = \"$name64\""))
+    }
+
+    @Test
+    fun `init rejects greater than 64-character project name with exit code 1`() {
+        val name65 = "a".repeat(65)
+        val result = execute(listOf("init", name65))
+
+        assertEquals(1, result.exitCode)
+        assertTrue(result.stderr.contains("Project name must start with a lowercase letter and contain only lowercase ASCII letters, digits, or hyphens (1–64 characters)"))
+        assertFalse(Files.exists(temporaryDirectory.resolve(name65)))
+    }
+
+    @Test
+    fun `init normalizes spaces, uppercase, and underscores into lowercase hyphenated manifest name`() {
+        val cases = listOf(
+            "Hello World" to "hello-world",
+            "UPPERCASE" to "uppercase",
+            "bad_name" to "bad-name",
+            "hello-123" to "hello-123",
+            "my   cool__app" to "my-cool-app",
+        )
+
+        for ((dirName, expectedManifestName) in cases) {
+            val target = temporaryDirectory.resolve(dirName)
+            val result = execute(listOf("init", dirName))
+
+            assertEquals(0, result.exitCode, "Failed for $dirName: ${result.stderr}")
+            assertTrue(Files.isDirectory(target), "Directory should exist on disk: $target")
+            val manifest = Files.readString(target.resolve("qutivex.toml"))
+            assertTrue(
+                manifest.contains("name = \"$expectedManifestName\""),
+                "Manifest for $dirName should have name = \"$expectedManifestName\", got:\n$manifest",
+            )
+        }
+    }
+
+    @Test
+    fun `init rejects invalid-only names with exit code 1`() {
+        val invalidNames = listOf("___", "---", "!!!", "@@@", "2start", "éclair")
+        for (name in invalidNames) {
+            val result = execute(listOf("init", "--", name))
+
+            assertEquals(1, result.exitCode, "Expected failure for '$name': ${result.stderr}")
+            assertTrue(result.stderr.startsWith("error: "))
+            assertFalse(Files.exists(temporaryDirectory.resolve(name)))
+        }
+    }
+
+    @Test
+    fun `init preserves directory name on disk while normalizing manifest project-name`() {
+        val dirName = "My Special App"
+        val target = temporaryDirectory.resolve(dirName)
+        val result = execute(listOf("init", dirName))
+
+        assertEquals(0, result.exitCode, result.stderr)
+        assertTrue(Files.exists(target))
+        assertEquals(dirName, target.fileName.toString())
+        val manifest = Files.readString(target.resolve("qutivex.toml"))
+        assertTrue(manifest.contains("name = \"my-special-app\""))
+    }
+
+    @Test
     fun `invalid arguments fail before creating files`() {
         val invalidArguments = listOf(
             listOf("unknown"),
@@ -282,8 +361,25 @@ class QutivexCliTest {
             listOf("remove", "group:artifact", "extra"),
             listOf("list", "extra"),
             listOf("list", "--unknown"),
+            listOf("tree", "--unknown"),
+            listOf("tree", "--scope=invalid"),
+            listOf("tree", "--depth=invalid"),
             listOf("install", "extra"),
             listOf("install", "--unknown"),
+            listOf("toolchain", "unknown"),
+            listOf("toolchain", "list", "invalid"),
+            listOf("toolchain", "list", "extra1", "extra2"),
+            listOf("toolchain", "install"),
+            listOf("toolchain", "install", "invalid", "1.0"),
+            listOf("toolchain", "use"),
+            listOf("toolchain", "use", "invalid", "1.0"),
+            listOf("toolchain", "remove"),
+            listOf("toolchain", "remove", "invalid", "1.0"),
+            listOf("toolchain", "update", "invalid"),
+            listOf("env", "unknown"),
+            listOf("env", "info", "extra"),
+            listOf("env", "clean", "extra"),
+            listOf("env", "recreate", "extra"),
             listOf("doctor", "extra"),
             listOf("doctor", "--unknown"),
         )
@@ -355,13 +451,62 @@ class QutivexCliTest {
     }
 
     @Test
-    fun `run reports error when manifest is missing`() {
-        val emptyDir = temporaryDirectory.resolve("empty")
+    fun `exit-code contract - successful commands and help return 0`() {
+        val successCommands = listOf(
+            emptyList(),
+            listOf("help"),
+            listOf("--help"),
+            listOf("-h"),
+            listOf("init", "--help"),
+            listOf("run", "--help"),
+            listOf("test", "--help"),
+            listOf("build", "--help"),
+            listOf("add", "--help"),
+            listOf("remove", "--help"),
+            listOf("list", "--help"),
+            listOf("tree", "--help"),
+            listOf("install", "--help"),
+            listOf("toolchain"),
+            listOf("toolchain", "--help"),
+            listOf("env"),
+            listOf("env", "--help"),
+            listOf("doctor"),
+            listOf("doctor", "--help"),
+            listOf("--version"),
+            listOf("-V"),
+        )
+
+        for (cmd in successCommands) {
+            val result = execute(cmd)
+            assertEquals(0, result.exitCode, "Expected exit code 0 for $cmd: ${result.stderr}")
+        }
+    }
+
+    @Test
+    fun `exit-code contract - operational failures return 1`() {
+        val emptyDir = temporaryDirectory.resolve("empty-operational")
         Files.createDirectories(emptyDir)
 
-        val result = execute(listOf("run"), emptyDir)
-        assertEquals(1, result.exitCode)
-        assertTrue(result.stderr.contains("No 'qutivex.toml' manifest found"))
+        val operationalFailures = listOf(
+            listOf("run"),
+            listOf("test"),
+            listOf("build"),
+            listOf("add", "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0"),
+            listOf("remove", "org.jetbrains.kotlinx:kotlinx-coroutines-core"),
+            listOf("tree"),
+            listOf("install"),
+            listOf("toolchain", "use", "kotlin", "9.9.9"),
+            listOf("toolchain", "use", "jdk", "99"),
+            listOf("env", "info"),
+            listOf("env", "clean"),
+            listOf("env", "recreate"),
+        )
+
+        for (cmd in operationalFailures) {
+            val result = execute(cmd, emptyDir)
+            assertEquals(1, result.exitCode, "Expected exit code 1 for $cmd, got ${result.exitCode}")
+            assertTrue(result.stderr.startsWith("error: "), "Expected error prefix for $cmd: ${result.stderr}")
+        }
     }
 
     private fun execute(args: List<String>, workingDirectory: Path = temporaryDirectory): Result {

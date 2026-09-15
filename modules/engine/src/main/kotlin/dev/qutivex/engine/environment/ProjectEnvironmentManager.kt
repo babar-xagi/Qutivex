@@ -241,6 +241,10 @@ class ProjectEnvironmentManager(
     }
 
     fun clean(projectDir: Path, stdout: PrintWriter? = null) {
+        val manifestFile = projectDir.resolve("qutivex.toml")
+        if (!Files.exists(manifestFile)) {
+            throw EnvironmentException("No 'qutivex.toml' manifest found in '$projectDir'. Run 'qutivex init' first.")
+        }
         val qutivexDir = projectDir.resolve(".qutivex")
         if (Files.exists(qutivexDir)) {
             cleanDir(qutivexDir.resolve("classes/main"))

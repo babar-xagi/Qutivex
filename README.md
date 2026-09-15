@@ -32,7 +32,7 @@ qutivex doctor
 ```
 
 > [!TIP]
-> **Prerequisites:** Only **JDK 21** (e.g. Eclipse Adoptium Temurin 21) is required on your machine. See [Toolchain & JDK Architecture](docs/toolchains.md). You do **not** need to install Gradle, Maven, or Kotlin separately — Qutivex manages its backend and toolchains automatically!
+> **Prerequisites:** Only **JDK 21** (e.g. Eclipse Adoptium Temurin 21) is required on your machine. See [Toolchain & JDK Architecture](docs/toolchains.md). You do **not** need to install Gradle, Maven, or Kotlin separately — Qutivex manages its native build engine and toolchains automatically!
 
 ---
 

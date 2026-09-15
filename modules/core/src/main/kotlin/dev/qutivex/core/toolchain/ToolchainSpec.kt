@@ -20,6 +20,7 @@ data class ToolchainInfo(
     val path: Path,
     val isManaged: Boolean = true,
     val isActive: Boolean = false,
+    val isDefault: Boolean = false,
     val isSystem: Boolean = false,
     val metadata: Map<String, String> = emptyMap(),
 ) {

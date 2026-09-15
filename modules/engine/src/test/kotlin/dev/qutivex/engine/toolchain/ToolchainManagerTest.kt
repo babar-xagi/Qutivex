@@ -290,4 +290,53 @@ class ToolchainManagerTest {
         toolchainManager.remove(ToolchainType.KOTLIN, "2.1.20", PrintWriter(stdout), PrintWriter(stderr), projectDir)
         assertFalse(Files.exists(toolchainManager.kotlinDir.resolve("2.1.20")))
     }
+
+    @Test
+    fun `toolchain list clearly distinguishes project active, global default, and merely installed`() {
+        val stdout = StringWriter()
+        val stderr = StringWriter()
+
+        // Install versions
+        toolchainManager.installKotlin("2.4.10", PrintWriter(stdout), PrintWriter(stderr))
+        toolchainManager.installKotlin("2.1.20", PrintWriter(stdout), PrintWriter(stderr))
+        toolchainManager.installKotlin("2.0.0", PrintWriter(stdout), PrintWriter(stderr))
+
+        toolchainManager.installJdk("21", PrintWriter(stdout), PrintWriter(stderr))
+        toolchainManager.installJdk("17", PrintWriter(stdout), PrintWriter(stderr))
+
+        // Set global default outside of any project
+        toolchainManager.useKotlin("2.4.10", null, PrintWriter(stdout), PrintWriter(stderr))
+        toolchainManager.useJdk("21", null, PrintWriter(stdout), PrintWriter(stderr))
+
+        // 1. Outside project: default displays (default), others have no active/default tag
+        val outsideList = toolchainManager.list(null)
+        val renderedOutside = outsideList.render(ToolchainType.KOTLIN)
+        assertTrue(renderedOutside.contains("• 2.4.10 (default) [managed]"))
+        assertTrue(renderedOutside.contains("• 2.1.20 [managed]"))
+        assertTrue(renderedOutside.contains("• 2.0.0 [managed]"))
+        assertFalse(renderedOutside.contains("(active)"))
+
+        val renderedOutsideJdk = outsideList.render(ToolchainType.JDK)
+        assertTrue(renderedOutsideJdk.contains("• 21 (default)"))
+        assertTrue(renderedOutsideJdk.contains("• 17 [managed]"))
+
+        // 2. Inside project with manifest specifying 2.1.20 and JDK 17
+        val projectDir = tempDir.resolve("visibility-app")
+        Files.createDirectories(projectDir)
+        val manifest = ManifestSpec(
+            project = ManifestProject(name = "visibility-app"),
+            toolchain = ManifestToolchain(kotlin = "2.1.20", jvm = 17),
+        )
+        Files.writeString(projectDir.resolve("qutivex.toml"), manifest.toToml())
+
+        val insideList = toolchainManager.list(projectDir)
+        val renderedInside = insideList.render(ToolchainType.KOTLIN)
+        assertTrue(renderedInside.contains("• 2.1.20 (active) [managed]"))
+        assertTrue(renderedInside.contains("• 2.4.10 (default) [managed]"))
+        assertTrue(renderedInside.contains("• 2.0.0 [managed]"))
+
+        val renderedInsideJdk = insideList.render(ToolchainType.JDK)
+        assertTrue(renderedInsideJdk.contains("• 17 (active) [managed]"))
+        assertTrue(renderedInsideJdk.contains("• 21 (default)"))
+    }
 }

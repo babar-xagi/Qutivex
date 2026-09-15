@@ -109,23 +109,35 @@ Starting in Phase 0.4.1, Qutivex provides a dedicated toolchain manager (inspire
 ### Toolchain CLI Commands
 
 ```powershell
-# List installed and active toolchains
+# List installed toolchains (supports optional 'kotlin' or 'jdk' filter)
 qutivex toolchain list
+qutivex toolchain list kotlin
+qutivex toolchain list jdk
 
 # Install Kotlin or JDK toolchain
 qutivex toolchain install kotlin 2.4.10
 qutivex toolchain install jdk 21
 
-# Set active toolchain for project (or global default)
+# Set active toolchain for project (or global default if outside project)
 qutivex toolchain use kotlin 2.4.10
 qutivex toolchain use jdk 21
 
-# Remove a toolchain
+# Remove an installed toolchain (protected against active project/default versions)
 qutivex toolchain remove kotlin 2.1.20
 
-# Update toolchains
+# Update toolchains (supports optional 'kotlin' or 'jdk' filter)
 qutivex toolchain update
+qutivex toolchain update kotlin
 ```
+
+### Toolchain Visibility & Status Indicators
+
+The `qutivex toolchain list` command clearly distinguishes toolchain state:
+- **`• <version> (active)`**: The toolchain actively configured and used by the current project (`qutivex.toml`).
+- **`• <version> (default)`**: The global default toolchain configured for the user/environment (`~/.qutivex/toolchains/toolchains.toml`).
+- **`• <version>`** (no status tag): Merely installed in the local toolchain repository, available for selection.
+- **`[managed]`**: Managed and provisioned directly by Qutivex in `~/.qutivex/toolchains/`.
+- **`[system]`**: Local system JDK discovered via `JAVA_HOME` or system `PATH`.
 
 When building or running a project, Qutivex reads the required toolchains from `qutivex.toml` and automatically provisions them if missing, ensuring complete reproducibility across developer workstations and CI runners.
 

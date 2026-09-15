@@ -45,17 +45,13 @@ flowchart TD
   - If the computed digest does not match the published release checksum, the downloaded installer is immediately deleted and the upgrade is aborted with a `SecurityException`.
   - Upgrades are launched via `msiexec.exe /i <msi> /qb`, ensuring Windows Installer manages transaction logging, component registration, and permissions. Qutivex **never** manually overwrites files in `C:\Program Files\`.
 
-### B. Managed Backend (Build/Run/Test Only)
-- **Pinned Version**: The disposable Gradle backend (used temporarily only for `run`, `test`, `build` until Phase 4) is pinned to version `9.5.0`.
+### B. Build Engine & Managed Backend
+- **Native Build Engine**: Normal Kotlin/JVM `build`, `run`, and `test` lifecycles are executed 100% natively by the in-process Kotlin compiler (`K2JVMCompiler`) and native JUnit Platform runner, eliminating external Gradle processes.
+- **Legacy Gradle Fallback**: For transitional or legacy environments, disposable backend generation is pinned to Gradle version `9.5.0`.
 - **Distribution Integrity**:
   - The wrapper configuration (`.qutivex/gradle/gradle/wrapper/gradle-wrapper.properties`) is pinned to HTTPS distribution URLs.
   - The binary wrapper JAR (`gradle-wrapper.jar`) is embedded within the Qutivex distribution and verified before execution.
-  - In `qutivex.lock`, the `[backend]` section records the exact type and version:
-    ```toml
-    [backend]
-    type = "gradle"
-    gradle = "9.5.0"
-    ```
+  - In `qutivex.lock`, the `[backend]` section records the active build engine type and version.
 - **Zero Gradle in Dependency Lifecycle**: No Gradle process is launched during `add`, `remove`, `update`, `list`, `tree`, `install`, `install --offline`, or `install --frozen`.
 
 ### C. Maven Artifacts
