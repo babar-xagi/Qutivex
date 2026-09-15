@@ -22,6 +22,7 @@ class NativeTestRunner {
         verbose: Boolean = false,
         manifest: dev.qutivex.core.manifest.ManifestSpec? = null,
         lockfile: dev.qutivex.core.lockfile.LockfileSpec? = null,
+        javaExecutable: String? = null,
     ): Int {
         if (!Files.exists(testClassesDir)) {
             stdout.println("No test classes found in $testClassesDir")
@@ -46,10 +47,10 @@ class NativeTestRunner {
             .joinToString(File.pathSeparator) { it.toAbsolutePath().toString() }
 
         // 2. Locate Java executable
-        val javaExecutable = resolveJavaExecutable()
+        val actualJava = javaExecutable ?: resolveJavaExecutable()
 
         val command = mutableListOf(
-            javaExecutable,
+            actualJava,
             "-Dfile.encoding=UTF-8",
             "-Dstdout.encoding=UTF-8",
             "-Dstderr.encoding=UTF-8",

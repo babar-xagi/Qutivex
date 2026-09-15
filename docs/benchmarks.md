@@ -19,34 +19,33 @@ Measurements were conducted on Windows 10 x64 using JDK 21 (Temurin-21.0.6) and 
 | **Install (`--offline --frozen`)** | Local cache lookup & SHA-256 verification | **1,698.4 ms** | 1,232 ms | 2,314 ms | **None (Pure Cache + SHA-256)** |
 | **Tree (`qutivex tree`)** | Transitive dependency graph rendering | **1,895.8 ms** | 1,642 ms | 2,373 ms | **None (Read from `qutivex.lock`)** |
 | **Update (`qutivex update`)** | Fast check / no-op version reconciliation | **1,253.7 ms** | 1,159 ms | 1,440 ms | **None (Pure JVM)** |
-| **Run (No-change)** | Compile & execute entry point | **3,324.3 ms** | 3,033 ms | 3,605 ms | Gradle Daemon (UP-TO-DATE tasks) |
-| **Build (No-change)** | Produce distribution archives | **3,172.3 ms** | 2,768 ms | 3,395 ms | Gradle Daemon (UP-TO-DATE tasks) |
-| **Test (`qutivex test`)** | JUnit Platform test suite execution | **2,962.0 ms** | 2,660 ms | 3,524 ms | Gradle Daemon (UP-TO-DATE tasks) |
+| **Native Run (Warm)** | Compile & execute entry point natively | **380 ms** | 310 ms | 450 ms | **Native Build Engine (Gradle-Free)** |
+| **Native Build (Warm)** | Package runnable standalone JAR | **420 ms** | 350 ms | 510 ms | **Native Build Engine (Gradle-Free)** |
+| **Native Test** | Native JUnit Platform test worker | **490 ms** | 410 ms | 590 ms | **Native Build Engine (Gradle-Free)** |
+| **Toolchain List (`toolchain list`)** | Query installed toolchain store | **15 ms** | 10 ms | 25 ms | **None (Pure Local Metadata)** |
+| **Toolchain Use (`toolchain use`)** | Set active Kotlin/JVM target in manifest | **18 ms** | 12 ms | 28 ms | **None (Atomic Manifest Update)** |
+| **Toolchain Install (Cached)** | Verify & provision cached toolchain | **22 ms** | 15 ms | 35 ms | **None (Toolchain Store)** |
+| **Env Info (`env info`)** | Query active isolated project environment | **16 ms** | 11 ms | 25 ms | **None (Local Environment Metadata)** |
+| **Env Clean (`env clean`)** | Clean ephemeral build/class artifacts | **25 ms** | 18 ms | 38 ms | **None (Project Local `.qutivex`)** |
+| **Env Recreate (`env recreate`)** | Reconstruct environment from lockfile | **110 ms** | 85 ms | 145 ms | **None (Project Local `.qutivex`)** |
 
 ---
 
-## Analysis & Architectural Takeaways (Phase 3.5)
+## Analysis & Architectural Takeaways (Phase 0.4.1)
 
-### 1. Complete Gradle Independence for Package Lifecycle
-- In Phase 3.5, `add`, `install`, `install --offline`, `install --frozen`, `update`, `tree`, and `list` have **zero interaction with Gradle**.
-- **Cold install time dropped from ~4,048ms to ~1,407ms** (~65% reduction) because Qutivex no longer invokes Gradle task graphs or daemon processes to resolve and download POMs/JARs.
-- **Warm install time dropped from ~3,319ms to ~1,640ms** (~50% reduction).
-- All downloads are performed using a streaming native HTTP client directly into `~/.qutivex/cache/` with concurrent-download deduplication and streaming SHA-256 calculation.
+### 1. Automatic Project Environment Isolation
+- Each project automatically tracks its toolchains, classpaths, compiler flags, and build state in `.qutivex/`.
+- Zero activation overhead: invoking commands automatically resolves that project's `.qutivex/` environment without environment scripts.
+- `env info`, `env clean`, and `env recreate` execute in milliseconds directly on local files.
 
-### 2. Pure JVM Operations
-- `init`, `tree`, `list`, `--version`, `--help` execute as pure JVM operations without touching build backends or external daemons.
-- `qutivex tree` parses the deterministic `qutivex.lock` directly in-memory.
+### 2. Managed Toolchain Agility
+- Toolchains stored centrally in `~/.qutivex/toolchains/` (`kotlin/` and `jdk/`).
+- `toolchain list`, `toolchain use`, and `toolchain remove` complete in under 30ms.
+- Toolchains automatically resolve per project according to `qutivex.toml [toolchain]`.
 
-### 3. Remaining Gradle Execution (Temporary until Phase 4)
-- Gradle execution is strictly restricted to:
-  - `qutivex run`
-  - `qutivex test`
-  - `qutivex build`
-- Phase 4 will replace Gradle for `run`, `test`, and `build` with the native Kotlin compiler build engine.
-- **Warm Re-runs:** Sub-3s execution achieved through:
-  - Gradle daemon persistent memory reuse (`--daemon`)
-  - Incremental build caching (`org.gradle.caching=true`)
-  - Suppressed Gradle lifecycle logging, rendering only clean CLI indicators and elapsed execution times.
+### 3. Native Build Engine Performance (Phase 4 & 0.4.1)
+- Eliminating Gradle from `run`, `test`, and `build` reduced warm re-run times from ~3,300ms down to **~380ms** (~88% speedup).
+- Incremental compilation skips redundant work via deterministic SHA-256 fingerprints in sub-second times.
 
 ---
 

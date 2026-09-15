@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.1] - 2026-09-14
+
+### Added
+- **Phase 0.4.1 — Toolchain Management & Automatic Project Environments**:
+  - **Self-Contained Toolchain Management (`ToolchainManager`)**:
+    - Central toolchain store in `~/.qutivex/toolchains/` (`kotlin/` and `jdk/`).
+    - Added CLI commands:
+      - `qutivex toolchain list`: Lists all installed and active Kotlin and JDK toolchains, noting current system or managed defaults.
+      - `qutivex toolchain install kotlin <version>`: Provisions and caches managed Kotlin compilers.
+      - `qutivex toolchain install jdk <version>`: Manages JDK versions with local system JDK auto-discovery and managed JDK registration.
+      - `qutivex toolchain use kotlin <version>`: Sets active Kotlin compiler version in `qutivex.toml` or sets global default.
+      - `qutivex toolchain use jdk <version>`: Sets active JVM target version in `qutivex.toml` or sets global default.
+      - `qutivex toolchain remove <type> <version>`: Safely uninstalls and cleans managed toolchains.
+      - `qutivex toolchain update`: Verifies and refreshes installed toolchain state.
+    - Automatic toolchain resolution and missing toolchain auto-installation or clear recovery messages.
+    - Strict offline resilience: cached toolchains work without network; missing toolchains provide actionable installation instructions.
+  - **Automatic Isolated Project Environments (`ProjectEnvironmentManager`)**:
+    - Transparent project isolation inside `.qutivex/`:
+      - `.qutivex/env/`: Environment metadata (`env.toml`) and resolved classpath tracking (`classpath.txt`).
+      - `.qutivex/build/`: Build fingerprints and project distribution artifacts.
+      - `.qutivex/classes/`: Project-isolated compiled classes (`main/` and `test/`).
+      - `.qutivex/state/`: JSON project state tracking dependency counts, manifest/lock hashes, and build status.
+      - `.qutivex/cache/`: Local project build and artifact cache.
+    - Zero activate/deactivate commands needed; switching directories automatically switches project environments.
+    - Added CLI commands:
+      - `qutivex env info`: Displays comprehensive details about active project environment (toolchains, dependencies, classpaths, classes count, cache size).
+      - `qutivex env clean`: Cleans ephemeral class and build artifacts without altering project configuration.
+      - `qutivex env recreate`: Nukes and rebuilds `.qutivex/` environment from scratch from `qutivex.toml` and `qutivex.lock`.
+  - **Full Lifecycle Integration**:
+    - Integrated with `qutivex build`: Uses environment's toolchain and stores classes/fingerprints in `.qutivex/`.
+    - Integrated with `qutivex run`: Executes application with project-configured JDK runtime.
+    - Integrated with `qutivex test`: Executes JUnit platform tests with project-configured JDK runtime.
+    - Integrated with `qutivex install`: Synchronizes dependencies into project environment classpath and state.
+    - Integrated with `qutivex doctor`: Reports managed toolchain status and active project environment isolation.
+    - Preserved 100% backward compatibility with Phase 4 native build engine.
+
+### Fixed
+- Hardened `toolchain list` and `toolchain update` commands with optional `[type]` argument filtering (`kotlin` or `jdk`) and clear validation for invalid types.
+- Enforced toolchain installation check in `toolchain use <type> <version>` to prevent setting nonexistent versions as active.
+- Added deletion guard in `toolchain remove <type> <version>` preventing accidental removal of actively configured project toolchains or global defaults.
+- Synchronized build state when `.qutivex/` is removed, invalidating stale `build/` fingerprints and forcing a clean rebuild.
+- Enhanced `env recreate` to immediately restore resolved classpath from `qutivex.lock` and artifact cache into `READY` state.
+- Aligned `qutivex doctor` diagnostics to purely report native build engine and isolated `.qutivex` environment status.
+
+---
+
 ## [0.4.0] - 2026-09-12
 
 ### Added

@@ -200,11 +200,50 @@ qutivex install --offline
 qutivex install --offline --frozen
 ```
 
+### 11. Toolchain Management (`toolchain`)
+
+Manage Kotlin and JDK toolchains centrally like `rustup`:
+
+```powershell
+# List installed and active toolchains
+qutivex toolchain list
+
+# Install Kotlin and JDK toolchains
+qutivex toolchain install kotlin 2.4.10
+qutivex toolchain install jdk 21
+
+# Switch project toolchains in qutivex.toml
+qutivex toolchain use kotlin 2.4.10
+qutivex toolchain use jdk 21
+
+# Remove or update toolchains
+qutivex toolchain remove kotlin 2.1.20
+qutivex toolchain update
+```
+
+Toolchains are stored centrally in `~/.qutivex/toolchains/` (`kotlin/` and `jdk/`). Missing required toolchains are automatically installed or provide actionable recovery steps.
+
+### 12. Automatic Project Environments (`env`)
+
+Every project automatically uses an isolated environment in `.qutivex/` without needing manual activate or deactivate commands:
+
+```powershell
+# Inspect project environment status, toolchains, classpaths, and cache
+qutivex env info
+
+# Clean ephemeral compilation and build artifacts
+qutivex env clean
+
+# Reconstruct environment from scratch from qutivex.toml and qutivex.lock
+qutivex env recreate
+```
+
 ---
 
 ## ⚡ Performance & Native Engine
 
 Qutivex is tuned for instant developer feedback and is 100% Gradle-free:
+- **Managed Toolchains & Isolated Environments (Phase 0.4.1)**: Self-contained toolchain management (`qutivex toolchain`) and automatic zero-overhead project environments (`.qutivex/`).
 - **Native Dependency Engine (Phase 3.5)**: Dependency resolution, POM parsing (parent chains, BOM imports, exclusions, version conflicts), artifact downloading, and caching are executed natively in pure Kotlin without Gradle overhead.
 - **Native Kotlin/JVM Build Engine (Phase 4)**: Direct in-process Kotlin compiler invocation (`K2JVMCompiler`), native JUnit Platform test execution, and standalone runnable JAR packaging. Gradle is completely eliminated from normal project workflows (`build`, `run`, `test`).
 - **Dedicated Artifact Cache**: Artifacts and POMs are cached under `~/.qutivex/cache/` with SHA-256 integrity checks, corruption detection, and concurrent-download locking.
@@ -227,7 +266,9 @@ Qutivex is tuned for instant developer feedback and is 100% Gradle-free:
 | `qutivex list` | Display declared runtime and test dependencies |
 | `qutivex tree [--scope <scope>] [--depth <N>]` | Render the transitive dependency tree hierarchy from lockfile |
 | `qutivex install [--frozen] [--offline]` | Download and lock dependencies natively (CI `--frozen`, offline cache `--offline`) |
-| `qutivex doctor` | Inspect local environment, JDK 21 installation, and Maven Central connectivity |
+| `qutivex toolchain <cmd>` | Manage Kotlin and JDK toolchains (`list`, `install`, `use`, `remove`, `update`) |
+| `qutivex env <cmd>` | Inspect and manage isolated project environments (`info`, `clean`, `recreate`) |
+| `qutivex doctor` | Inspect local environment, JDK 21 installation, toolchains, and project environment |
 | `qutivex --version` | Display installed Qutivex version |
 | `qutivex --help` | Show general help or command-specific options (`qutivex <command> --help`) |
 

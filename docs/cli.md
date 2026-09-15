@@ -287,6 +287,72 @@ qutivex install --verbose
 
 ---
 
+### `qutivex toolchain`
+
+Manages installed Kotlin and JDK toolchains centrally in `~/.qutivex/toolchains/`.
+
+```text
+Usage: qutivex toolchain <subcommand> [options]
+
+Commands:
+  list                      List installed and active toolchains
+  install <type> <version>  Install a toolchain (type: kotlin or jdk)
+  use <type> <version>      Set the active toolchain for project or user
+  remove <type> <version>   Remove an installed toolchain
+  update                    Check and update installed toolchains
+
+Options:
+  -h, --help                Show this help
+```
+
+- `qutivex toolchain list`: Displays all installed Kotlin and JDK toolchains, identifying the active versions in the current project.
+- `qutivex toolchain install <kotlin|jdk> <version>`: Downloads, installs, and registers the requested toolchain.
+- `qutivex toolchain use <kotlin|jdk> <version>`: Updates the project `qutivex.toml` `[toolchain]` section or configures user global defaults.
+- `qutivex toolchain remove <kotlin|jdk> <version>`: Uninstalls and purges the toolchain from the local store.
+- `qutivex toolchain update`: Checks and updates metadata for installed toolchains.
+
+**Examples:**
+```powershell
+qutivex toolchain list
+qutivex toolchain install kotlin 2.4.10
+qutivex toolchain install jdk 21
+qutivex toolchain use kotlin 2.4.10
+qutivex toolchain use jdk 21
+qutivex toolchain remove kotlin 2.1.20
+qutivex toolchain update
+```
+
+---
+
+### `qutivex env`
+
+Inspects and manages automatic, isolated project environments (`.qutivex/`).
+
+```text
+Usage: qutivex env <subcommand> [options]
+
+Commands:
+  info                      Display details about the project environment
+  clean                     Clean ephemeral build and class artifacts
+  recreate                  Wipe and reconstruct the project environment
+
+Options:
+  -h, --help                Show this help
+```
+
+- `qutivex env info`: Displays full status of the active project environment, including Kotlin compiler location, JDK location, dependency graph status, classpath entry counts, class counts, and cache size.
+- `qutivex env clean`: Purges ephemeral compiled classes, build artifacts, and cache entries while preserving `qutivex.toml` and `qutivex.lock`.
+- `qutivex env recreate`: Nukes the `.qutivex/` directory and completely rebuilds the isolated environment from `qutivex.toml` and `qutivex.lock`.
+
+**Examples:**
+```powershell
+qutivex env info
+qutivex env clean
+qutivex env recreate
+```
+
+---
+
 ### `qutivex doctor`
 
 Inspects the local runtime environment to verify prerequisites.
@@ -296,6 +362,8 @@ Usage: qutivex doctor
 ```
 
 - Verifies that JDK 21 is available (via `JAVA_HOME` or `PATH`).
+- Inspects managed toolchains in `~/.qutivex/toolchains/`.
+- Inspects active project environment isolation (`.qutivex/`).
 - Checks Maven Central reachability.
 - Displays platform and architecture information.
 

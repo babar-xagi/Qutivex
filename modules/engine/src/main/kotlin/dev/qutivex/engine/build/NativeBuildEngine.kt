@@ -2,11 +2,14 @@ package dev.qutivex.engine.build
 
 import dev.qutivex.core.lockfile.LockfileSpec
 import dev.qutivex.core.manifest.ManifestSpec
+import dev.qutivex.core.toolchain.ToolchainInfo
 import dev.qutivex.engine.dependency.ArtifactCache
 import dev.qutivex.engine.dependency.DependencyManager
 import dev.qutivex.engine.dependency.LocalArtifactCache
+import dev.qutivex.engine.environment.ProjectEnvironmentManager
 import dev.qutivex.engine.lockfile.LockfileManager
 import dev.qutivex.engine.manifest.ManifestParser
+import dev.qutivex.engine.toolchain.ToolchainManager
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStream
@@ -21,6 +24,7 @@ import kotlin.io.path.isDirectory
 /**
  * The core native Kotlin/JVM build engine.
  * Completely eliminates Gradle from build, run, and test lifecycles.
+ * Fully integrated with managed toolchains and automatic project environments.
  */
 class NativeBuildEngine(
     private val manifestParser: ManifestParser = ManifestParser(),
@@ -33,6 +37,8 @@ class NativeBuildEngine(
     private val jarPackager: JarPackager = JarPackager(),
     private val testRunner: NativeTestRunner = NativeTestRunner(),
     private val dependencyManager: DependencyManager = DependencyManager(artifactCache = artifactCache),
+    private val toolchainManager: ToolchainManager = ToolchainManager(),
+    private val environmentManager: ProjectEnvironmentManager = ProjectEnvironmentManager(toolchainManager = toolchainManager, manifestParser = manifestParser),
 ) {
 
     fun build(
@@ -42,6 +48,7 @@ class NativeBuildEngine(
         verbose: Boolean = false,
     ): Int {
         val manifest = prepareProject(projectDir)
+        val toolchains = toolchainManager.resolveToolchains(manifest, projectDir, autoInstall = true, stdout = stdout, stderr = stderr)
         val lockfile = loadOrResolveLockfile(projectDir, manifest)
         val scan = sourceScanner.scan(projectDir)
 
@@ -49,6 +56,15 @@ class NativeBuildEngine(
         val mainClassesDir = projectDir.resolve("build/classes/kotlin/main")
         val mainResourcesDir = projectDir.resolve("build/resources/main")
         val compileCp = classpathBuilder.buildCompileClasspath(projectDir, manifest, lockfile)
+
+        environmentManager.ensureEnvironment(
+            projectDir = projectDir,
+            manifest = manifest,
+            lockfile = lockfile,
+            classpath = compileCp,
+            compilerOptions = listOf("-jvm-target", manifest.toolchain.jvm.toString()),
+            status = "BUILDING",
+        )
 
         if (scan.hasMainSources) {
             val mainStatus = incrementalBuildManager.checkUpToDate(
@@ -87,6 +103,9 @@ class NativeBuildEngine(
                     classpath = compileCp,
                     toolchain = manifest.toolchain,
                 )
+
+                // Mirror to project environment classes
+                mirrorDirectory(mainClassesDir, projectDir.resolve(".qutivex/classes/main"))
             } else {
                 stdout.println("Main sources UP-TO-DATE")
             }
@@ -134,11 +153,14 @@ class NativeBuildEngine(
                     classpath = testCompileCp,
                     toolchain = manifest.toolchain,
                 )
+
+                // Mirror to project environment classes
+                mirrorDirectory(testClassesDir, projectDir.resolve(".qutivex/classes/test"))
             } else {
                 stdout.println("Test sources UP-TO-DATE")
             }
 
-            // Run tests as part of build lifecycle
+            // Run tests as part of build lifecycle using resolved JDK
             val testRuntimeCp = classpathBuilder.buildTestRuntimeClasspath(projectDir, manifest, lockfile)
             val testExit = testRunner.execute(
                 testClassesDir = testClassesDir,
@@ -149,6 +171,7 @@ class NativeBuildEngine(
                 verbose = verbose,
                 manifest = manifest,
                 lockfile = lockfile,
+                javaExecutable = resolveJavaExecutable(toolchains.jdk),
             )
 
             if (testExit != 0) {
@@ -172,6 +195,20 @@ class NativeBuildEngine(
             runtimeJars = runtimeJars,
         )
 
+        // Copy packaged jar to project environment build folder
+        val envBuildJar = projectDir.resolve(".qutivex/build").resolve(outputJar.fileName)
+        Files.createDirectories(envBuildJar.parent)
+        Files.copy(outputJar, envBuildJar, REPLACE_EXISTING)
+
+        environmentManager.ensureEnvironment(
+            projectDir = projectDir,
+            manifest = manifest,
+            lockfile = lockfile,
+            classpath = compileCp,
+            compilerOptions = listOf("-jvm-target", manifest.toolchain.jvm.toString()),
+            status = "BUILT",
+        )
+
         stdout.println("✔ Packaged ${outputJar.fileName}")
         return 0
     }
@@ -185,6 +222,7 @@ class NativeBuildEngine(
         verbose: Boolean = false,
     ): Int {
         val manifest = prepareProject(projectDir)
+        val toolchains = toolchainManager.resolveToolchains(manifest, projectDir, autoInstall = true, stdout = stdout, stderr = stderr)
         val lockfile = loadOrResolveLockfile(projectDir, manifest)
         val scan = sourceScanner.scan(projectDir)
 
@@ -230,6 +268,8 @@ class NativeBuildEngine(
                     classpath = compileCp,
                     toolchain = manifest.toolchain,
                 )
+
+                mirrorDirectory(mainClassesDir, projectDir.resolve(".qutivex/classes/main"))
             }
         }
 
@@ -241,9 +281,18 @@ class NativeBuildEngine(
 
         // Build runtime classpath
         val runtimeCp = classpathBuilder.buildRuntimeClasspath(projectDir, manifest, lockfile)
+        environmentManager.ensureEnvironment(
+            projectDir = projectDir,
+            manifest = manifest,
+            lockfile = lockfile,
+            classpath = runtimeCp,
+            compilerOptions = listOf("-jvm-target", manifest.toolchain.jvm.toString()),
+            status = "RUNNING",
+        )
+
         val cpString = runtimeCp.joinToString(File.pathSeparator) { it.toAbsolutePath().toString() }
 
-        val javaExecutable = resolveJavaExecutable()
+        val javaExecutable = resolveJavaExecutable(toolchains.jdk)
         val command = mutableListOf(
             javaExecutable,
             "-Dfile.encoding=UTF-8",
@@ -322,6 +371,7 @@ class NativeBuildEngine(
         verbose: Boolean = false,
     ): Int {
         val manifest = prepareProject(projectDir)
+        val toolchains = toolchainManager.resolveToolchains(manifest, projectDir, autoInstall = true, stdout = stdout, stderr = stderr)
         val lockfile = loadOrResolveLockfile(projectDir, manifest)
         val scan = sourceScanner.scan(projectDir)
 
@@ -372,6 +422,8 @@ class NativeBuildEngine(
                     classpath = compileCp,
                     toolchain = manifest.toolchain,
                 )
+
+                mirrorDirectory(mainClassesDir, projectDir.resolve(".qutivex/classes/main"))
             }
         }
 
@@ -416,11 +468,22 @@ class NativeBuildEngine(
                 classpath = testCompileCp,
                 toolchain = manifest.toolchain,
             )
+
+            mirrorDirectory(testClassesDir, projectDir.resolve(".qutivex/classes/test"))
         }
 
         // 3. Run JUnit tests
         val testRuntimeCp = classpathBuilder.buildTestRuntimeClasspath(projectDir, manifest, lockfile)
-        return testRunner.execute(
+        environmentManager.ensureEnvironment(
+            projectDir = projectDir,
+            manifest = manifest,
+            lockfile = lockfile,
+            classpath = testRuntimeCp,
+            compilerOptions = listOf("-jvm-target", manifest.toolchain.jvm.toString()),
+            status = "TESTING",
+        )
+
+        val testExit = testRunner.execute(
             testClassesDir = testClassesDir,
             testClasspath = testRuntimeCp,
             projectDir = projectDir,
@@ -429,7 +492,19 @@ class NativeBuildEngine(
             verbose = verbose,
             manifest = manifest,
             lockfile = lockfile,
+            javaExecutable = resolveJavaExecutable(toolchains.jdk),
         )
+
+        environmentManager.ensureEnvironment(
+            projectDir = projectDir,
+            manifest = manifest,
+            lockfile = lockfile,
+            classpath = testRuntimeCp,
+            compilerOptions = listOf("-jvm-target", manifest.toolchain.jvm.toString()),
+            status = if (testExit == 0) "TESTED" else "TEST_FAILED",
+        )
+
+        return testExit
     }
 
     private fun prepareProject(projectDir: Path): ManifestSpec {
@@ -485,7 +560,45 @@ class NativeBuildEngine(
         }
     }
 
-    private fun resolveJavaExecutable(): String {
+    private fun mirrorDirectory(srcDir: Path, destDir: Path) {
+        if (!Files.exists(srcDir) || !srcDir.isDirectory()) return
+        Files.createDirectories(destDir)
+        Files.walk(srcDir).use { stream ->
+            stream.forEach { source ->
+                val relative = srcDir.relativize(source)
+                val destination = destDir.resolve(relative)
+                if (Files.isDirectory(source)) {
+                    Files.createDirectories(destination)
+                } else {
+                    val parent = destination.parent
+                    if (parent != null) Files.createDirectories(parent)
+                    Files.copy(source, destination, REPLACE_EXISTING)
+                }
+            }
+        }
+    }
+
+    private fun resolveJavaExecutable(toolchain: ToolchainInfo? = null): String {
+        if (toolchain != null) {
+            val p = toolchain.path
+            if (Files.isRegularFile(p)) {
+                return p.toAbsolutePath().toString()
+            }
+            val isWindows = System.getProperty("os.name").lowercase().contains("win")
+            val binName = if (isWindows) "java.exe" else "java"
+            val candidate = p.resolve("bin").resolve(binName)
+            if (Files.exists(candidate)) {
+                return candidate.toAbsolutePath().toString()
+            }
+            val metaHome = toolchain.metadata["javaHome"]
+            if (!metaHome.isNullOrBlank()) {
+                val homeCandidate = Path.of(metaHome, "bin", binName)
+                if (Files.exists(homeCandidate)) {
+                    return homeCandidate.toAbsolutePath().toString()
+                }
+            }
+        }
+
         val javaHome = System.getProperty("java.home")
         if (!javaHome.isNullOrBlank()) {
             val isWindows = System.getProperty("os.name").lowercase().contains("win")

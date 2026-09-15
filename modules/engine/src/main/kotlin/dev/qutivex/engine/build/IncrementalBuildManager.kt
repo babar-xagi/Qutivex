@@ -40,7 +40,18 @@ class IncrementalBuildManager {
     ): IncrementalStatus {
         val classesDir = projectDir.resolve("build/classes/kotlin").resolve(scope.dirName)
         if (!Files.exists(classesDir) || !hasCompiledClasses(classesDir)) {
+            invalidateFingerprint(projectDir, scope)
             return IncrementalStatus.Stale("Classes directory missing or empty: $classesDir")
+        }
+
+        val qutivexDir = projectDir.resolve(".qutivex")
+        val isQutivexProject = Files.exists(qutivexDir) || Files.exists(projectDir.resolve("qutivex.toml"))
+        if (isQutivexProject) {
+            val envClassesDir = qutivexDir.resolve("classes").resolve(scope.dirName)
+            if (!Files.exists(envClassesDir) || !hasCompiledClasses(envClassesDir)) {
+                invalidateFingerprint(projectDir, scope)
+                return IncrementalStatus.Stale("Environment classes missing or empty in .qutivex: $envClassesDir")
+            }
         }
 
         val fingerprintFile = projectDir.resolve("build").resolve(scope.fingerprintName)
@@ -52,6 +63,7 @@ class IncrementalBuildManager {
         val savedFingerprint = try {
             Files.readString(fingerprintFile, UTF_8).trim()
         } catch (_: Exception) {
+            invalidateFingerprint(projectDir, scope)
             return IncrementalStatus.Stale("Failed to read existing build fingerprint")
         }
 
@@ -59,6 +71,13 @@ class IncrementalBuildManager {
             IncrementalStatus.UpToDate
         } else {
             IncrementalStatus.Stale("Inputs modified since last build")
+        }
+    }
+
+    fun invalidateFingerprint(projectDir: Path, scope: BuildScope) {
+        val fingerprintFile = projectDir.resolve("build").resolve(scope.fingerprintName)
+        if (Files.exists(fingerprintFile)) {
+            try { Files.delete(fingerprintFile) } catch (_: Exception) {}
         }
     }
 

@@ -78,8 +78,7 @@ kotlin = "2.4.10"
 jvm = 21
 
 [backend]
-type = "gradle"
-gradle = "9.5.0"
+type = "native"
 ```
 
 If a developer changes the Kotlin version or JVM target in `qutivex.toml` without running `qutivex install` to reconcile the lockfile, frozen mode rejects the build:
@@ -93,7 +92,46 @@ Run 'qutivex install' without --frozen to reconcile dependencies.
 
 ---
 
-## 4. Installing Java 21
+## 4. Managed Toolchains (`~/.qutivex/toolchains/`)
+
+Starting in Phase 0.4.1, Qutivex provides a dedicated toolchain manager (inspired by Rustup):
+
+```text
+~/.qutivex/toolchains/
+├── kotlin/
+│   ├── 2.4.10/
+│   └── 2.1.20/
+└── jdk/
+    ├── 21/
+    └── 17/
+```
+
+### Toolchain CLI Commands
+
+```powershell
+# List installed and active toolchains
+qutivex toolchain list
+
+# Install Kotlin or JDK toolchain
+qutivex toolchain install kotlin 2.4.10
+qutivex toolchain install jdk 21
+
+# Set active toolchain for project (or global default)
+qutivex toolchain use kotlin 2.4.10
+qutivex toolchain use jdk 21
+
+# Remove a toolchain
+qutivex toolchain remove kotlin 2.1.20
+
+# Update toolchains
+qutivex toolchain update
+```
+
+When building or running a project, Qutivex reads the required toolchains from `qutivex.toml` and automatically provisions them if missing, ensuring complete reproducibility across developer workstations and CI runners.
+
+---
+
+## 5. Installing Java 21
 
 ### Windows
 ```powershell

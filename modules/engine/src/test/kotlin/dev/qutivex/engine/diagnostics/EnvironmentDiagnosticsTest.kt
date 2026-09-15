@@ -13,7 +13,7 @@ class EnvironmentDiagnosticsTest {
     fun `inspects environment and reports status`() {
         val result = diagnostics.inspect("0.1.0")
         assertEquals("0.1.0", result.qutivexVersion)
-        assertEquals("managed", result.gradleStatus)
+        assertEquals("native", result.buildEngineStatus)
         assertTrue(result.platform.isNotBlank())
 
         val stdout = StringWriter()
@@ -25,7 +25,9 @@ class EnvironmentDiagnosticsTest {
         assertTrue(output.contains("Qutivex"))
         assertTrue(output.contains("Platform"))
         assertTrue(output.contains("Java"))
-        assertTrue(output.contains("Gradle"))
+        assertTrue(output.contains("Build Engine"))
+        assertTrue(output.contains("native"))
+        kotlin.test.assertFalse(output.contains("Gradle"))
 
         // Since we are running under JDK 21 in test, javaOk should be true
         if (result.javaMajorVersion == 21) {

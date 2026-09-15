@@ -169,6 +169,63 @@ NativeBuildEngine
 
 ---
 
+## Toolchain Management & Automatic Project Environments (Phase 0.4.1)
+
+Phase 0.4.1 makes Qutivex completely self-contained like Rustup + Cargo, providing managed toolchains and automatic isolated project environments:
+
+```text
+Developer
+   ↓
+qutivex.toml [toolchain]
+   ↓
+Qutivex Toolchain Manager (~/.qutivex/toolchains/)
+   ├── kotlin/<version>/
+   └── jdk/<version>/
+   ↓
+Automatic Isolated Project Environment (.qutivex/)
+   ├── env/
+   ├── build/
+   ├── classes/
+   ├── state/
+   └── cache/
+   ↓
+Qutivex Native Build Engine
+   ↓
+Kotlin Compiler & JVM Execution
+```
+
+### 1. Central Toolchain Store (`ToolchainManager`)
+Toolchains are managed centrally in `~/.qutivex/toolchains/`:
+- `kotlin/<version>/`: Managed Kotlin compilers, descriptors, and libraries.
+- `jdk/<version>/`: Managed JDK installations with automatic local JDK discovery and registration.
+- **Commands**:
+  - `qutivex toolchain list`: Lists all installed and active toolchains.
+  - `qutivex toolchain install <type> <version>`: Downloads, installs, and provisions toolchains.
+  - `qutivex toolchain use <type> <version>`: Sets the project's active toolchain in `qutivex.toml` or global defaults.
+  - `qutivex toolchain remove <type> <version>`: Uninstalls a toolchain.
+  - `qutivex toolchain update`: Checks and updates metadata for installed toolchains.
+- **Auto-Resolution & Recovery**:
+  - Missing toolchains in connected mode are automatically resolved and installed.
+  - In offline mode, actionable recovery messages guide the user with exact commands.
+
+### 2. Automatic Project Environments (`ProjectEnvironmentManager`)
+Each project automatically uses its own isolated environment inside `.qutivex/`:
+- `.qutivex/env/`:
+  - `env.toml`: Tracks project metadata, toolchains, and compiler flags.
+  - `classpath.txt`: Tracks resolved compile, runtime, and test classpaths.
+- `.qutivex/build/`: Stores build fingerprints and distribution artifacts.
+- `.qutivex/classes/`: Isolated compiled bytecode directories (`main/` and `test/`).
+- `.qutivex/state/`: `project-state.json` recording build status, hashes, and dependency counts.
+- `.qutivex/cache/`: Project-local build and artifact cache.
+- **Zero Activation**:
+  - No `activate` or `deactivate` commands. Pure directory context awareness automatically isolates projects.
+- **Commands**:
+  - `qutivex env info`: Displays full status of active environment.
+  - `qutivex env clean`: Purges ephemeral build and class artifacts.
+  - `qutivex env recreate`: Nukes and rebuilds environment from scratch.
+
+---
+
 ## Legacy Gradle Backend (Fallback)
 
 For legacy or transitional environments, Gradle backend generation remains available under `.qutivex/gradle/`:

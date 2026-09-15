@@ -12,8 +12,8 @@
 | Phase 3 | Public alpha, tree/update, distribution, benchmarks | ✅ Complete |
 | Phase 3.5 | Native dependency engine; remove Gradle from package resolution | ✅ Complete |
 | **Phase 4** | **Native Kotlin/JVM build engine; remove Gradle from build/run/test** | ✅ **Complete** |
-| **Phase 0.4.1** | **Toolchain Management & Automatic Project Environments**|⏭️ Next|
-| Phase 5 | IDE workflow, daily development, stable 1.0 hardening |  |
+| **Phase 0.4.1** | **Toolchain Management & Automatic Project Environments**|✅ **Complete**|
+| Phase 5 | IDE workflow, daily development, stable 1.0 hardening | ⏭️ Next |
 | Phase 6 | Android, KMP, workspaces, plugins, publishing and other long-term tracks | ⏳ Future |
 
 ---
@@ -1138,14 +1138,75 @@ JVM
 ✅ Complete
 
 ---
-# 🚀 Create Qutivex v0.4.1 — Toolchain Management & Automatic Project Environments
+# Phase 0.4.1 — Toolchain Management & Automatic Project Environments 🚀 IN PROGRESS
 
-#  🎯 plan:
+## Milestone
+
 Make Qutivex self-contained like Rustup + Cargo, with managed Kotlin/JDK toolchains and automatic isolated project environments.
 
-🧰 Toolchain Management
-Add:
+Target:
 
+```text
+Developer
+   ↓
+qutivex.toml [toolchain]
+   ↓
+Qutivex Toolchain Manager (~/.qutivex/toolchains/)
+   ├── kotlin/<version>/
+   └── jdk/<version>/
+   ↓
+Automatic Isolated Project Environment (.qutivex/)
+   ├── env/
+   ├── build/
+   ├── classes/
+   ├── state/
+   └── cache/
+   ↓
+Qutivex Native Build Engine
+   ↓
+Kotlin Compiler & JVM Execution
+```
+
+---
+
+## 0.4.1.1 — Philosophy & Rust Comparison
+
+```text
+Rust:
+rustup                 → toolchains (rustc, stdlib, cargo)
+cargo                  → packages + build
+
+Qutivex:
+qutivex toolchain      → Kotlin/JDK toolchain management & storage
+qutivex                → dependencies + build + run + test
+automatic environments → transparent project isolation (zero activate/deactivate)
+```
+
+---
+
+## 0.4.1.2 — Toolchain Store Layout
+
+Store toolchains centrally in the user home directory:
+
+```text
+~/.qutivex/toolchains/
+├── kotlin/
+│   ├── 2.4.10/
+│   └── 2.1.20/
+└── jdk/
+    ├── 21/
+    └── 17/
+```
+
+- Each toolchain directory is uniquely named by its version.
+- Active or default versions are tracked cleanly in `~/.qutivex/toolchains/toolchains.toml` (or configuration files).
+- Toolchains are isolated from system-wide PATH mutations and never interfere across projects.
+
+---
+
+## 0.4.1.3 — Toolchain CLI Commands
+
+```text
 qutivex toolchain list
 qutivex toolchain install kotlin <version>
 qutivex toolchain install jdk <version>
@@ -1153,118 +1214,154 @@ qutivex toolchain use kotlin <version>
 qutivex toolchain use jdk <version>
 qutivex toolchain remove <type> <version>
 qutivex toolchain update
+```
 
-Store toolchains in:
+Semantics:
+- `qutivex toolchain list`: Lists all installed and active Kotlin and JDK toolchains, noting current system or managed defaults.
+- `qutivex toolchain install kotlin <version>`: Downloads, verifies, and installs the requested Kotlin toolchain into `~/.qutivex/toolchains/kotlin/<version>`.
+- `qutivex toolchain install jdk <version>`: Downloads, verifies, and installs the requested OpenJDK/Eclipse Temurin distribution into `~/.qutivex/toolchains/jdk/<version>`.
+- `qutivex toolchain use kotlin <version>`: Sets the active toolchain in `qutivex.toml` for the current project (or user default if outside a project).
+- `qutivex toolchain use jdk <version>`: Sets the active JDK in `qutivex.toml` for the current project.
+- `qutivex toolchain remove <type> <version>`: Safely removes an installed toolchain (`kotlin` or `jdk`).
+- `qutivex toolchain update`: Checks for updates or newer point releases of installed toolchains and updates metadata.
 
-~/.qutivex/toolchains/
-├── kotlin/
-└── jdk/
+---
 
-Read required versions from qutivex.toml:
+## 0.4.1.4 — Manifest-Driven Toolchain Resolution & Auto-Recovery
 
+Read required versions from `qutivex.toml`:
+
+```toml
 [toolchain]
 kotlin = "2.4.10"
 jvm = 21
+```
 
-If a required toolchain is missing, Qutivex should automatically install it or provide a clear recovery message.
+Resolution rule:
+1. Check project manifest `[toolchain]`.
+2. Inspect `~/.qutivex/toolchains/` for matching installed toolchains.
+3. Fall back to host JDK if compatible with required JVM version when unmanaged.
+4. If a required toolchain is missing:
+   - In connected mode: automatically prompt/install the missing toolchain with clear progress.
+   - In offline/frozen mode: provide a clear, actionable recovery error with the exact installation command.
 
-📦 Automatic Project Environment
+---
 
-Each project should automatically use its own isolated environment:
+## 0.4.1.5 — Automatic Project Environment
 
+Each project automatically maintains its own isolated environment inside `.qutivex/`:
+
+```text
 .qutivex/
 ├── env/
+│   ├── env.toml             # Tracked environment metadata
+│   └── classpath.txt        # Computed project classpath
 ├── build/
+│   └── .qutivex-*-fingerprint
 ├── classes/
+│   ├── main/
+│   └── test/
 ├── state/
+│   └── project-state.json   # Build state, timestamps, lock hash
 └── cache/
+    └── local-artifacts/
+```
 
-Track:
+Tracked Environment State:
 - Kotlin version
 - JDK version
-- dependency graph
-- classpath
-- compiler options
-- build fingerprints
-- project state
+- Dependency graph & checksums
+- Compile, runtime, and test classpaths
+- Compiler options & flags
+- Build fingerprints
+- Project execution state
 
-No activate/deactivate commands.
+Zero activation overhead:
+- No `source .venv/bin/activate` or `deactivate`.
+- Pure context awareness: invoking `qutivex` within any directory reads that project's `.qutivex/` environment transparently.
 
-Example:
+---
 
-cd project-a
-qutivex run
-→ automatically uses project-a environment
+## 0.4.1.6 — Environment Lifecycle CLI Commands
 
-cd project-b
-qutivex run
-→ automatically uses project-b environment
-
-Add:
-
+```text
 qutivex env info
 qutivex env clean
 qutivex env recreate
+```
 
-🔒 Reproducibility
+Semantics:
+- `qutivex env info`: Displays comprehensive details about the active project environment (Kotlin version, JDK location, dependency count, classpath status, cache size).
+- `qutivex env clean`: Cleans ephemeral environment artifacts (`.qutivex/classes/`, `.qutivex/build/`, `.qutivex/cache/`) without altering `qutivex.toml` or `qutivex.lock`.
+- `qutivex env recreate`: Nukes the current `.qutivex/` directory and reconstructs the environment from scratch according to `qutivex.toml` and `qutivex.lock`.
 
-The same:
+---
 
-qutivex.toml
-qutivex.lock
-Kotlin version
-JDK version
+## 0.4.1.7 — Reproducibility & Machine Independence
 
-should recreate the same project environment on another machine.
+The tuple of:
+- `qutivex.toml`
+- `qutivex.lock`
+- Toolchain configuration (`kotlin`, `jvm`)
 
-⚙️ Integration
+guarantees bit-for-bit identical environment reconstruction across different developer workstations and CI/CD runners.
 
-Integrate this with:
+---
 
-qutivex build
-qutivex run
-qutivex test
-qutivex install
-qutivex doctor
+## 0.4.1.8 — Integration with Lifecycle Commands
 
-Do not break the Phase 4 native build engine.
+Integrate managed toolchains and automatic environments with:
+- `qutivex build`: Uses environment's Kotlin compiler & JDK; saves compiled classes in `.qutivex/classes/` and builds in `.qutivex/build/`.
+- `qutivex run`: Executes using environment's JDK runtime and computed runtime classpath.
+- `qutivex test`: Executes JUnit tests using environment's test classpath and JDK.
+- `qutivex install`: Synchronizes dependencies into environment classpath and cache.
+- `qutivex doctor`: Inspects installed toolchains (`~/.qutivex/toolchains/`), project environment health, and host JDK status.
 
-🦀 Philosophy
+> [!IMPORTANT]
+> The Phase 4 native build engine must remain completely intact and unaffected by toolchain additions.
 
-Rust:
-rustup → toolchains
-cargo → packages + build
+---
 
-Qutivex:
-qutivex toolchain → Kotlin/JDK toolchains
-qutivex → dependencies + build + run + test
-automatic environments → project isolation
+## 0.4.1.9 — Offline & Network Resilience
 
-🧪 Tests
+- Toolchain and environment operations respect `--offline`.
+- When offline, pre-installed toolchains in `~/.qutivex/toolchains/` are used seamlessly.
+- Missing toolchains trigger structured diagnostics instead of network timeouts.
 
-Add comprehensive tests for:
-- install/list/use/remove toolchains
-- automatic toolchain selection
-- different Kotlin versions across projects
-- different JDK versions
-- environment isolation
-- env clean/recreate
-- missing toolchain recovery
-- offline behavior
-- reproducibility
-- build/run/test with managed toolchains
+---
 
-📚 Finish
+## 0.4.1.10 — Tests & Verification Matrix
 
-- bump version to 0.4.1
-- update README
-- update architecture docs
-- update CLI docs
-- update CHANGELOG
-- add benchmarks
-- provide final implementation report
+Add comprehensive test coverage for:
+1. Toolchain management: install, list, use, remove, update.
+2. Automatic toolchain selection and resolution from `qutivex.toml`.
+3. Multi-project isolation: Project A with Kotlin 2.4.10 / JDK 21 and Project B with Kotlin 2.1.20 / JDK 17.
+4. Environment lifecycle: `env info`, `env clean`, `env recreate`.
+5. Missing toolchain detection and recovery messages.
+6. Offline behavior and cached toolchain reuse.
+7. End-to-end `build`, `run`, `test` with managed toolchains.
 
-# staus
+---
+
+## Phase 0.4.1 Definition of Done
+
+- [x] `qutivex toolchain` commands (`list`, `install`, `use`, `remove`, `update`)
+- [x] Toolchain store under `~/.qutivex/toolchains/kotlin/` and `~/.qutivex/toolchains/jdk/`
+- [x] Manifest `[toolchain]` version enforcement and auto-detection
+- [x] Missing toolchain automatic installation and clear recovery diagnostics
+- [x] Automatic project environment layout under `.qutivex/` (`env`, `build`, `classes`, `state`, `cache`)
+- [x] `qutivex env` commands (`info`, `clean`, `recreate`)
+- [x] Transparent project isolation (zero activate/deactivate commands)
+- [x] Seamless integration with `build`, `run`, `test`, `install`, and `doctor`
+- [x] Phase 4 native build engine preserved and working
+- [x] Comprehensive unit and integration test suite passing
+- [x] Version bumped to 0.4.1 across all project files
+- [x] Documentation, CLI reference, and CHANGELOG updated
+- [x] Benchmarks performed and published
+
+## Status
+
+✅ Complete
 
 # Phase 5 — Daily Development, IDE Bridge, and Stable 1.0 ⏳ PLANNED
 
@@ -1386,6 +1483,15 @@ packaging
 Gradle removed from normal Kotlin/JVM workflow
 ```
 
+```text
+Generation 5 — Phase 0.4.1
+Qutivex owns:
+managed toolchains (~/.qutivex/toolchains/kotlin, ~/.qutivex/toolchains/jdk)
+automatic isolated environments (.qutivex/env, build, classes, state, cache)
+reproducible project state
+native compiler & runtime execution
+```
+
 ---
 
 # Release Milestone View
@@ -1409,6 +1515,10 @@ Native dependency engine
 
 v0.4.0
 Native Kotlin build engine
+✅ Complete
+
+v0.4.1
+Toolchain Management & Automatic Project Environments
 ✅ Complete
 
 v1.0.0

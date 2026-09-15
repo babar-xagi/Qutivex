@@ -1,16 +1,21 @@
 package dev.qutivex.cli
 
 import dev.qutivex.core.dependency.DependencyCoordinate
+import dev.qutivex.core.toolchain.ToolchainType
 import dev.qutivex.engine.dependency.DependencyException
 import dev.qutivex.engine.dependency.DependencyManager
 import dev.qutivex.engine.dependency.TransitiveChange
 import dev.qutivex.engine.diagnostics.EnvironmentDiagnostics
+import dev.qutivex.engine.environment.EnvironmentException
+import dev.qutivex.engine.environment.ProjectEnvironmentManager
 import dev.qutivex.engine.lockfile.LockfileException
 import dev.qutivex.engine.manifest.ManifestParseException
 import dev.qutivex.engine.manifest.ManifestParser
 import dev.qutivex.engine.project.ProjectExecutor
 import dev.qutivex.engine.project.ProjectInitializer
 import dev.qutivex.engine.selfupdate.SelfUpdater
+import dev.qutivex.engine.toolchain.ToolchainException
+import dev.qutivex.engine.toolchain.ToolchainManager
 import java.io.InputStream
 import java.io.PrintWriter
 import java.nio.file.Files
@@ -26,6 +31,8 @@ class QutivexCli(
     private val dependencyManager: DependencyManager = DependencyManager(),
     private val diagnostics: EnvironmentDiagnostics = EnvironmentDiagnostics(),
     private val selfUpdater: SelfUpdater = SelfUpdater(),
+    private val toolchainManager: ToolchainManager = ToolchainManager(),
+    private val environmentManager: ProjectEnvironmentManager = ProjectEnvironmentManager(toolchainManager = toolchainManager),
 ) {
     fun execute(
         args: List<String>,
@@ -82,6 +89,14 @@ class QutivexCli(
                 }
                 Command.DoctorHelp -> {
                     stdout.println(DOCTOR_HELP)
+                    0
+                }
+                Command.ToolchainHelp -> {
+                    stdout.println(TOOLCHAIN_HELP)
+                    0
+                }
+                Command.EnvHelp -> {
+                    stdout.println(ENV_HELP)
                     0
                 }
                 Command.Version -> {
@@ -296,7 +311,53 @@ class QutivexCli(
                     code
                 }
                 Command.Doctor -> {
-                    diagnostics.printReport(diagnostics.inspect(readVersion()), stdout, stderr)
+                    diagnostics.printReport(diagnostics.inspect(readVersion(), workingDirectory), stdout, stderr)
+                }
+                is Command.ToolchainList -> {
+                    val list = toolchainManager.list(workingDirectory)
+                    stdout.println(list.render(command.type))
+                    0
+                }
+                is Command.ToolchainInstall -> {
+                    val start = System.currentTimeMillis()
+                    when (command.type) {
+                        ToolchainType.KOTLIN -> toolchainManager.installKotlin(command.version, stdout, stderr)
+                        ToolchainType.JDK -> toolchainManager.installJdk(command.version, stdout, stderr)
+                    }
+                    val elapsed = System.currentTimeMillis() - start
+                    stdout.println("⏱️ Finished in ${formatDuration(elapsed)}")
+                    0
+                }
+                is Command.ToolchainUse -> {
+                    when (command.type) {
+                        ToolchainType.KOTLIN -> toolchainManager.useKotlin(command.version, workingDirectory, stdout, stderr)
+                        ToolchainType.JDK -> toolchainManager.useJdk(command.version, workingDirectory, stdout, stderr)
+                    }
+                    0
+                }
+                is Command.ToolchainRemove -> {
+                    toolchainManager.remove(command.type, command.version, stdout, stderr, workingDirectory)
+                    0
+                }
+                is Command.ToolchainUpdate -> {
+                    toolchainManager.update(command.type, stdout, stderr)
+                    0
+                }
+                Command.EnvInfo -> {
+                    val info = environmentManager.info(workingDirectory)
+                    stdout.println(info.render())
+                    0
+                }
+                Command.EnvClean -> {
+                    environmentManager.clean(workingDirectory, stdout)
+                    0
+                }
+                Command.EnvRecreate -> {
+                    val start = System.currentTimeMillis()
+                    environmentManager.recreate(workingDirectory, stdout, stderr, dependencyManager)
+                    val elapsed = System.currentTimeMillis() - start
+                    stdout.println("⏱️ Finished in ${formatDuration(elapsed)}")
+                    0
                 }
             }
         } catch (failure: UsageException) {
@@ -313,6 +374,12 @@ class QutivexCli(
             stderr.println("error: ${failure.message}")
             1
         } catch (failure: LockfileException) {
+            stderr.println("error: ${failure.message}")
+            1
+        } catch (failure: ToolchainException) {
+            stderr.println("error: ${failure.message}")
+            1
+        } catch (failure: EnvironmentException) {
             stderr.println("error: ${failure.message}")
             1
         } catch (failure: Exception) {
@@ -345,6 +412,8 @@ class QutivexCli(
             "tree" -> parseTree(args.drop(1))
             "update" -> parseUpdate(args.drop(1))
             "install" -> parseInstall(args.drop(1))
+            "toolchain" -> parseToolchain(args.drop(1))
+            "env" -> parseEnv(args.drop(1))
             "doctor" -> parseDoctor(args.drop(1))
             else -> throw UsageException("Unknown ${if (first.startsWith('-')) "option" else "command"}: $first")
         }
@@ -610,6 +679,110 @@ class QutivexCli(
         return Command.Doctor
     }
 
+    private fun parseToolchain(args: List<String>): Command {
+        if (args.isEmpty() || (args.size == 1 && args.first() in setOf("--help", "-h", "help"))) {
+            return Command.ToolchainHelp
+        }
+        return when (val sub = args.first()) {
+            "list" -> {
+                val subArgs = args.drop(1)
+                val type = when (subArgs.size) {
+                    0 -> null
+                    1 -> {
+                        if (subArgs[0] in setOf("--help", "-h")) return Command.ToolchainHelp
+                        try {
+                            ToolchainType.from(subArgs[0])
+                        } catch (e: IllegalArgumentException) {
+                            throw UsageException(e.message ?: "Invalid toolchain type.")
+                        }
+                    }
+                    else -> throw UsageException("'toolchain list' accepts at most one toolchain type ('kotlin' or 'jdk').")
+                }
+                Command.ToolchainList(type)
+            }
+            "install" -> {
+                val subArgs = args.drop(1)
+                if (subArgs.size < 2) {
+                    throw UsageException("Missing arguments for 'toolchain install'. Usage: qutivex toolchain install <kotlin|jdk> <version>")
+                }
+                val type = try {
+                    ToolchainType.from(subArgs[0])
+                } catch (e: IllegalArgumentException) {
+                    throw UsageException(e.message ?: "Invalid toolchain type.")
+                }
+                val version = subArgs[1]
+                if (version.isBlank()) throw UsageException("Version must not be blank.")
+                Command.ToolchainInstall(type, version)
+            }
+            "use" -> {
+                val subArgs = args.drop(1)
+                if (subArgs.size < 2) {
+                    throw UsageException("Missing arguments for 'toolchain use'. Usage: qutivex toolchain use <kotlin|jdk> <version>")
+                }
+                val type = try {
+                    ToolchainType.from(subArgs[0])
+                } catch (e: IllegalArgumentException) {
+                    throw UsageException(e.message ?: "Invalid toolchain type.")
+                }
+                val version = subArgs[1]
+                if (version.isBlank()) throw UsageException("Version must not be blank.")
+                Command.ToolchainUse(type, version)
+            }
+            "remove" -> {
+                val subArgs = args.drop(1)
+                if (subArgs.size < 2) {
+                    throw UsageException("Missing arguments for 'toolchain remove'. Usage: qutivex toolchain remove <type> <version>")
+                }
+                val type = try {
+                    ToolchainType.from(subArgs[0])
+                } catch (e: IllegalArgumentException) {
+                    throw UsageException(e.message ?: "Invalid toolchain type.")
+                }
+                val version = subArgs[1]
+                if (version.isBlank()) throw UsageException("Version must not be blank.")
+                Command.ToolchainRemove(type, version)
+            }
+            "update" -> {
+                val subArgs = args.drop(1)
+                val type = when (subArgs.size) {
+                    0 -> null
+                    1 -> {
+                        if (subArgs[0] in setOf("--help", "-h")) return Command.ToolchainHelp
+                        try {
+                            ToolchainType.from(subArgs[0])
+                        } catch (e: IllegalArgumentException) {
+                            throw UsageException(e.message ?: "Invalid toolchain type.")
+                        }
+                    }
+                    else -> throw UsageException("'toolchain update' accepts at most one toolchain type ('kotlin' or 'jdk').")
+                }
+                Command.ToolchainUpdate(type)
+            }
+            else -> throw UsageException("Unknown subcommand for 'toolchain': $sub. Expected 'list', 'install', 'use', 'remove', or 'update'.")
+        }
+    }
+
+    private fun parseEnv(args: List<String>): Command {
+        if (args.isEmpty() || (args.size == 1 && args.first() in setOf("--help", "-h", "help"))) {
+            return Command.EnvHelp
+        }
+        return when (val sub = args.first()) {
+            "info" -> {
+                if (args.size > 1) throw UsageException("'env info' does not accept additional arguments.")
+                Command.EnvInfo
+            }
+            "clean" -> {
+                if (args.size > 1) throw UsageException("'env clean' does not accept additional arguments.")
+                Command.EnvClean
+            }
+            "recreate" -> {
+                if (args.size > 1) throw UsageException("'env recreate' does not accept additional arguments.")
+                Command.EnvRecreate
+            }
+            else -> throw UsageException("Unknown subcommand for 'env': $sub. Expected 'info', 'clean', or 'recreate'.")
+        }
+    }
+
     private fun readVersion(): String {
         val metadata = Properties()
         val resource = QutivexCli::class.java.getResourceAsStream("/qutivex-version.properties")
@@ -632,6 +805,8 @@ class QutivexCli(
         data object UpdateHelp : Command
         data object InstallHelp : Command
         data object DoctorHelp : Command
+        data object ToolchainHelp : Command
+        data object EnvHelp : Command
         data object Version : Command
         data class Init(val directory: String) : Command
         data class Run(val forwardArgs: List<String>, val verbose: Boolean = false) : Command
@@ -645,6 +820,14 @@ class QutivexCli(
         data class Update(val coordinate: DependencyCoordinate, val isTest: Boolean?, val verbose: Boolean = false) : Command
         data class Install(val frozen: Boolean, val offline: Boolean, val verbose: Boolean = false) : Command
         data object Doctor : Command
+        data class ToolchainList(val type: ToolchainType? = null) : Command
+        data class ToolchainInstall(val type: ToolchainType, val version: String) : Command
+        data class ToolchainUse(val type: ToolchainType, val version: String) : Command
+        data class ToolchainRemove(val type: ToolchainType, val version: String) : Command
+        data class ToolchainUpdate(val type: ToolchainType? = null) : Command
+        data object EnvInfo : Command
+        data object EnvClean : Command
+        data object EnvRecreate : Command
     }
 
     private class UsageException(message: String) : IllegalArgumentException(message)
@@ -681,6 +864,8 @@ class QutivexCli(
               list                List project dependencies
               tree                Display transitive dependency tree
               install             Resolve and lock dependencies to qutivex.lock
+              toolchain <cmd>     Manage Kotlin and JDK toolchains
+              env <cmd>           Inspect and manage isolated project environments
               doctor              Inspect local environment and requirements
               help                Show this help
 
@@ -856,6 +1041,54 @@ class QutivexCli(
 
             Options:
               -h, --help        Show this help
+        """.trimIndent()
+
+        val TOOLCHAIN_HELP = """
+            Usage: qutivex toolchain <subcommand> [options]
+
+            Manage Kotlin and JDK toolchains.
+
+            Commands:
+              list [type]               List installed and active toolchains (type: kotlin or jdk)
+              install <type> <version>  Install a toolchain (type: kotlin or jdk)
+              use <type> <version>      Set the active toolchain for project or user
+              remove <type> <version>   Remove an installed toolchain
+              update [type]             Check and update installed toolchains (type: kotlin or jdk)
+
+            Options:
+              -h, --help                Show this help
+
+            Examples:
+              qutivex toolchain list
+              qutivex toolchain list kotlin
+              qutivex toolchain list jdk
+              qutivex toolchain install kotlin 2.4.10
+              qutivex toolchain install jdk 21
+              qutivex toolchain use kotlin 2.4.10
+              qutivex toolchain use jdk 21
+              qutivex toolchain remove kotlin 2.1.20
+              qutivex toolchain update
+              qutivex toolchain update kotlin
+              qutivex toolchain update jdk
+        """.trimIndent()
+
+        val ENV_HELP = """
+            Usage: qutivex env <subcommand> [options]
+
+            Inspect and manage isolated project environments (.qutivex/).
+
+            Commands:
+              info                      Display details about the project environment
+              clean                     Clean ephemeral build and class artifacts
+              recreate                  Wipe and reconstruct the project environment
+
+            Options:
+              -h, --help                Show this help
+
+            Examples:
+              qutivex env info
+              qutivex env clean
+              qutivex env recreate
         """.trimIndent()
     }
 }

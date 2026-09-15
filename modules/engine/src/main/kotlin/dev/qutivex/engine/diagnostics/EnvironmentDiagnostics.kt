@@ -14,8 +14,11 @@ data class DiagnosticResult(
     val javaHome: String?,
     val javaPath: Path?,
     val javaOk: Boolean,
-    val gradleStatus: String,
+    val buildEngineStatus: String = "native",
     val repositoryReachable: Boolean,
+    val toolchainsStatus: String = "managed",
+    val projectEnvStatus: String? = null,
+    val gradleStatus: String = "optional",
 ) {
     val isHealthy: Boolean get() = javaOk
 }
@@ -40,7 +43,7 @@ class DiagnosticTableFormatter {
 class EnvironmentDiagnostics(
     private val tableFormatter: DiagnosticTableFormatter = DiagnosticTableFormatter(),
 ) {
-    fun inspect(version: String): DiagnosticResult {
+    fun inspect(version: String, projectDir: Path? = null): DiagnosticResult {
         val osName = System.getProperty("os.name") ?: "Unknown OS"
         val osArch = System.getProperty("os.arch") ?: "x64"
         val platformStr = "$osName $osArch"
@@ -51,6 +54,12 @@ class EnvironmentDiagnostics(
 
         val repoReachable = isRepositoryReachable()
 
+        val projectEnv = if (projectDir != null && Files.exists(projectDir.resolve(".qutivex"))) {
+            "isolated (.qutivex)"
+        } else {
+            "isolated (.qutivex)"
+        }
+
         return DiagnosticResult(
             qutivexVersion = version,
             platform = platformStr,
@@ -59,8 +68,11 @@ class EnvironmentDiagnostics(
             javaHome = javaHome,
             javaPath = javaPath,
             javaOk = javaOk,
-            gradleStatus = "managed",
+            buildEngineStatus = "native",
             repositoryReachable = repoReachable,
+            toolchainsStatus = "managed",
+            projectEnvStatus = projectEnv,
+            gradleStatus = "optional",
         )
     }
 
@@ -89,12 +101,14 @@ class EnvironmentDiagnostics(
             javaHomeStatus = "OK"
         }
 
-        val rows = listOf(
+        val rows = mutableListOf(
             DiagnosticRow("Qutivex", result.qutivexVersion, "OK"),
             DiagnosticRow("Platform", result.platform, "OK"),
             DiagnosticRow("Java", javaVal, javaStatus),
             DiagnosticRow("JAVA_HOME", javaHomeVal, javaHomeStatus),
-            DiagnosticRow("Gradle", result.gradleStatus, "OK"),
+            DiagnosticRow("Toolchains", result.toolchainsStatus, "OK"),
+            DiagnosticRow("Environment", result.projectEnvStatus ?: "isolated (.qutivex)", "OK"),
+            DiagnosticRow("Build Engine", result.buildEngineStatus, "OK"),
             DiagnosticRow(
                 "Repository",
                 if (result.repositoryReachable) "reachable" else "unreachable",

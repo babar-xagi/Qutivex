@@ -134,4 +134,45 @@ class IncrementalBuildManagerTest {
 
         assertFalse(status.isUpToDate)
     }
+
+    @Test
+    fun `reports stale and invalidates fingerprint when environment classes in qutivex are missing`() {
+        val classesDir = tempDir.resolve("build/classes/kotlin/main")
+        Files.createDirectories(classesDir)
+        Files.writeString(classesDir.resolve("MainKt.class"), "mock-bytecode")
+
+        // Create .qutivex structure with empty classes/main
+        val qutivexDir = tempDir.resolve(".qutivex")
+        Files.createDirectories(qutivexDir.resolve("classes/main"))
+
+        val srcFile = tempDir.resolve("Main.kt")
+        Files.writeString(srcFile, "fun main() {}")
+        val scanned = listOf(ScannedFile(srcFile, "Main.kt", Files.size(srcFile), 1000L))
+
+        manager.recordBuild(
+            projectDir = tempDir,
+            scope = BuildScope.MAIN,
+            sources = scanned,
+            resources = emptyList(),
+            classpath = emptyList(),
+            toolchain = toolchain,
+        )
+
+        val fpFile = tempDir.resolve("build/.qutivex-main-fingerprint")
+        assertTrue(Files.exists(fpFile))
+
+        val status = manager.checkUpToDate(
+            projectDir = tempDir,
+            scope = BuildScope.MAIN,
+            sources = scanned,
+            resources = emptyList(),
+            classpath = emptyList(),
+            toolchain = toolchain,
+        )
+
+        assertFalse(status.isUpToDate)
+        assertTrue((status as IncrementalStatus.Stale).reason.contains("Environment classes missing or empty in .qutivex"))
+        // Fingerprint must have been invalidated (deleted)
+        assertFalse(Files.exists(fpFile))
+    }
 }

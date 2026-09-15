@@ -6,7 +6,7 @@ plugins {
 group = "dev.qutivex"
 version = providers.environmentVariable("QUTIVEX_VERSION")
     .orElse(providers.gradleProperty("qutivexVersion"))
-    .getOrElse("0.4.0")
+    .getOrElse("0.4.1")
 
 subprojects {
     group = rootProject.group

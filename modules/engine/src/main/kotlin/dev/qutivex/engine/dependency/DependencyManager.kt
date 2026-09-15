@@ -5,6 +5,7 @@ import dev.qutivex.core.manifest.ManifestSpec
 import dev.qutivex.engine.backend.gradle.BackendProcessRunner
 import dev.qutivex.engine.backend.gradle.GradleBackendGenerator
 import dev.qutivex.engine.backend.gradle.GradleProcessRunner
+import dev.qutivex.engine.environment.ProjectEnvironmentManager
 import dev.qutivex.engine.lockfile.LockfileManager
 import dev.qutivex.engine.manifest.ManifestParser
 import dev.qutivex.engine.manifest.ManifestWriter
@@ -47,6 +48,7 @@ class DependencyManager(
     private val processRunner: BackendProcessRunner = GradleProcessRunner(),
     dependencyResolver: DependencyResolver? = null,
     private val artifactCache: ArtifactCache = LocalArtifactCache(),
+    private val environmentManager: ProjectEnvironmentManager = ProjectEnvironmentManager(),
 ) {
     private val dependencyResolver: DependencyResolver =
         dependencyResolver ?: NativeDependencyResolver(artifactCache = artifactCache)
@@ -219,6 +221,9 @@ class DependencyManager(
 
         // Update disposable backend files for future run/test/build (zero Gradle process execution)
         backendGenerator.generate(projectDir, manifest)
+
+        val updatedLock = lockfileManager.read(projectDir)
+        environmentManager.ensureEnvironment(projectDir, manifest, updatedLock, status = "INSTALLED")
 
         return 0
     }
